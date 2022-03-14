@@ -1,0 +1,8 @@
+.pytest_cache
+.vscode
+.idea
+.ipynb_checkpoints
+__pycache__/
+wandb/
+*.py[cod]
+*$py.class
