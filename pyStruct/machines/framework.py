@@ -5,7 +5,7 @@ import pandas as pd
 import sys
 
 
-from pyStruct.data.dataset import get_training_pairs, read_pickle
+from pyStruct.data.dataset import get_training_pairs, read_pickle, ModesManager
 from pyStruct.machines.feature_processors import get_spatial_strength, get_temporal_behavior
 from pyStruct.machines.regression import get_regressors_for_each_mode
 from pyStruct.machines.optimization import optm_workflow
@@ -145,6 +145,28 @@ class TimeSeriesPredictor:
         self.N_t = N_t
         self.wp = wp
     
+    def get_training_pairs(self, config):
+        pods = ModesManager(name='', workspace=config['workspace'], to_folder=None)
+        
+        # y
+        y = pods.T_walls[str(config['theta_deg'])]['T_wall']
+
+        # X
+        loc_index = pods.T_walls[str(config['theta_deg'])]['loc_index']
+        X_temporals = pods.X_temporals
+        X_s = pods.X_s
+        X_spatials = pods.X_spatials
+        coherent_strength = X_spatials[:, :, :, loc_index]
+        for sample in range(pods.N_samples):
+            cs = coherent_strength[sample, :, :]
+            # for mode in range(pods.N_modes):
+            #     cs[mode, :] = cs[mode, :] * X_s[sample, mode]
+            sort_key = lambda vec: np.linalg.norm(vec)
+            args = np.apply_along_axis(sort_key, axis=1, arr=cs).argsort()[::-1]
+            X_temporals[sample, ...] = X_temporals[sample, args, :] * sort_key(cs[args, :])
+        X = X_temporals
+        return X, y 
+    
     def optimize(self, workspace, theta_deg, loss_weights_config=None):
 
         """ Take data from the workspace, and optimize the weights at theta_deg"""
@@ -169,7 +191,9 @@ class TimeSeriesPredictor:
             "hist_loss_weight":loss_weights_config[4],
             "maxiter":1000,
         }
-        weights_table = optm_workflow(config)
+
+        X, y = self.get_training_pairs(config)
+        weights_table = optm_workflow(config, X, y)
         config['weights_table'] = weights_table
         return config
 

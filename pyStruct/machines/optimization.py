@@ -6,7 +6,6 @@ import wandb
 from scipy.optimize import minimize
 
 from pyStruct.machines.loss import fft_loss, std_loss, min_loss, max_loss, hist_loss
-from pyStruct.data.dataset import get_training_pairs
 
 def initialize_loss_weighting(X_r, y_r):
     N_modes = X_r.shape[0]
@@ -45,7 +44,7 @@ def objective_function(w, X_r, y_r, fft_loss_weight, std_loss_weight, min_loss_w
 def get_constraint(N_modes):
     cons = []
     for i in range(N_modes):
-        # con = lambda x: abs(x[i+1]) - abs(x[i])
+        # con = lambda x: abs(x[i]) - abs(x[i+1])
         con = lambda x: x[i]
         cons.append({'type': 'ineq', 'fun': con})
     return cons
@@ -69,12 +68,9 @@ def optimize(X_r, y_r, maxiter,
     return result.x
 
 
-def optm_workflow(config):
-    X, y = get_training_pairs(
-        config['workspace'], 
-        theta_deg=config['theta_deg'],
-        N_t = config['N_t']
-        )
+def optm_workflow(config, X, y):
+    # Get X,y pair
+
     # Read statepoint
     with open(Path(config['workspace'])/"signac_statepoint.json") as f:
         sp = json.load(f)

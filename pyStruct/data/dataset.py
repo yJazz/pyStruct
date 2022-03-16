@@ -114,10 +114,17 @@ def get_training_pairs(workspace, theta_deg, N_t=None):
 
     # Weighted by coherent strength
     coherent_strength = X_spatials[:, :, :, loc_index]
-    print(f"Coherent strength: {coherent_strength.shape}")
+    # Rank the Temporal modes by their coherent_strength
     for sample in range(N_sample):
-        for mode in range(N_mode):
-            X_temporals[sample, mode, :] = X_temporals[sample, mode, :] * np.linalg.norm(coherent_strength[sample, mode, :])
+        cs = coherent_strength[sample, :, :]
+        sort_key = lambda vec: np.linalg.norm(vec)
+        for mode in range(20):
+            print(sort_key(cs[mode, :]))
+        args = np.apply_along_axis(sort_key, axis=1, arr=cs).argsort()[::-1]
+        print(f"sample: {sample}, args:{args}")
+        X_temporals[sample, ...] = X_temporals[sample, args, :]
+
+
     X = X_temporals
 
     #  Normalized y: subtract the mean to exclude the temperature level variation 
@@ -304,7 +311,7 @@ class ModesManager:
         if to_folder:
             self.to_folder = Path(to_folder)
         else:
-            self.to_folder = workspace / "data"
+            self.to_folder = self.workspace / "data"
             self.to_folder.mkdir(parents=True, exist_ok=True)
 
         # Determine the dimension
@@ -330,13 +337,34 @@ class ModesManager:
         X_s = read_pickle(feature_s_path)
         coords = read_pickle(coords_path)
 
+        N_sample, N_mode, N_t = X_temporals.shape
+
         T_walls = {}
         for theta_deg in [0, 5, 10, 15, 20]:
-            try:
-                _, T_wall = get_training_pairs(self.workspace, theta_deg=theta_deg)
-                T_walls[str(theta_deg)] = T_wall
-            except:
-                print(f"No data of theta_deg={theta_deg} exists in workspace {self.workspace}")
+            loc_index =  find_loc_index(theta_rad=theta_deg/180*np.pi, coord=coords[0])
+            target_filename = f'target_deg{int(theta_deg)}_loc{loc_index}.pkl'
+            target_data_path = self.workspace / 'target' / target_filename 
+            y = read_pickle(target_data_path)
+
+            y = y[:, -N_t:]
+            state_point_file = self.workspace/"signac_statepoint.json"
+            with open(state_point_file) as f:
+                sp = json.load(f)
+            
+            bcs = {} 
+            for sample_name in sp['aggre_sp']:
+                bc = sp['aggre_sp'][sample_name]["cfd_sp"]['bc']
+                sample = int(sample_name.split("_")[-1])
+                bcs[sample] = bc
+
+            for sample in range(N_sample):
+                bc = bcs[bcs[sample]==sample]
+                T_c = bc['T_COLD_C']
+                T_h = bc['T_HOT_C']
+                y[sample, ...] = (y[sample, ...] - T_c)/(T_h)
+
+            y = y - y.mean(axis=1).reshape(-1,1)
+            T_walls[str(theta_deg)] = {'loc_index':loc_index, 'T_wall':y}
         return X_spatials, X_temporals, X_s, coords, T_walls
 
     def _read_signac(self):
