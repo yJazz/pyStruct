@@ -167,20 +167,16 @@ class TimeSeriesPredictor:
             for mode in range(pods.N_modes):
                 norm_of_cs[mode] = norm_of_cs[mode] * X_s[sample, mode]
                 
-            args = np.argsort(norm_of_cs)[::-1][:config['N_modes']]
-            if sample == 0:
-                print(norm_of_cs)
-                print(f'args= {args}')
-            # args = np.apply_along_axis(convert_to_norm, axis=1, arr=cs).argsort()[::-1][:self.N_modes]
+            args = np.argsort(norm_of_cs)[::-1]
             useful_modes_idx.append(args)
 
-            for mode, arg in enumerate(args):
-                X[sample, mode, :] = X_temporals[sample, arg, :] 
+            for mode, arg in enumerate(args[:config['N_modes']]):
+                X[sample, mode, :] = X_temporals[sample, arg, :] * cs[arg, 0]
             # X[sample, mode, :] = X_temporals[sample, mode, :]
 
         # return X, y, useful_modes_idx
         # X = X_temporals
-        useful_modes_idx = [list(range(20)) for _ in range(20)]
+        # useful_modes_idx = [list(range(20)) for _ in range(20)]
         return X, y, useful_modes_idx
     
     def optimize(self, workspace, theta_deg, loss_weights_config=None):
