@@ -6,10 +6,10 @@ import sys
 
 
 from pyStruct.data.dataset import get_training_pairs, read_pickle
-from .feature_processors import get_spatial_strength, get_temporal_behavior
-from .regression import get_regressors_for_each_mode
-from .optimization import optm_workflow
-from .structures import LookupStructure
+from pyStruct.machines.feature_processors import get_spatial_strength, get_temporal_behavior
+from pyStruct.machines.regression import get_regressors_for_each_mode
+from pyStruct.machines.optimization import optm_workflow
+from pyStruct.machines.structures import LookupStructure
 
 def get_bcs_from_signac(workspace):
     workspace = Path(workspace)
@@ -47,6 +47,7 @@ def initialize_wp_table(config):
     temporals = read_pickle(Path(config['workspace']) /"features"/ "X_temporals.pkl")
     coords = read_pickle(Path(config['workspace']) / "target"/ 'coords.pkl')
 
+
     # Features
     wp = pd.DataFrame()
     bcs = get_bcs_from_signac(config['workspace'])
@@ -70,7 +71,7 @@ def initialize_wp_table(config):
                     'T_c': float(T_c),
                     'T_h':float(T_h),
                     'singular': singulars[sample, mode], 
-                    'spatial_strength': get_spatial_strength(spatials[sample, mode, ...], coords[sample], theta_deg),
+                    'spatial_strength': get_spatial_strength(spatials[sample, mode, ...], coords[sample], theta_deg/180*np.pi),
                     'temporal_behavior': get_temporal_behavior(temporals[sample, mode, :]), 
                     'fluc_std': fluc_std
                 }
@@ -145,7 +146,9 @@ class TimeSeriesPredictor:
         self.wp = wp
     
     def optimize(self, workspace, theta_deg, loss_weights_config=None):
+
         """ Take data from the workspace, and optimize the weights at theta_deg"""
+        print("prepare optimize")
         assert Path(workspace).exists()
         if loss_weights_config:
             assert len(loss_weights_config) == 5, "Need to specify: fft, std, min, max, hist"

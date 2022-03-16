@@ -104,17 +104,19 @@ def get_training_pairs(workspace, theta_deg, N_t=None):
     X_temporals = read_pickle(feature_temporal_path)
     X_s = read_pickle(feature_s_path)
     coords = read_pickle(coords_path)
+    N_sample, N_mode, _ = X_temporals.shape
+
 
     loc_index =  find_loc_index(theta_rad=theta_deg/180*np.pi, coord=coords[0])
     target_filename = f'target_deg{int(theta_deg)}_loc{loc_index}.pkl'
     target_data_path = workspace / 'target' / target_filename 
 
-    # shift the value
-    N_sample, N_mode, _ = X_temporals.shape
-    for sample in range(N_sample):
-        for mode in range(N_mode):
-            X_temporals[sample, mode, ...] = abs(X_temporals[sample, mode, ...] )
 
+    # Weighted by coherent strength
+    # coherent_strength = X_spatials[:, :, :, loc_index]
+    # for sample in range(N_sample):
+    #     for mode in range(N_mode):
+    #         X_temporals[sample, mode, :] = X_temporals[sample, mode, :] * np.linalg.norm(coherent_strength[sample, mode, :])
     X = X_temporals
 
     #  Normalized y: subtract the mean to exclude the temperature level variation 
@@ -122,8 +124,24 @@ def get_training_pairs(workspace, theta_deg, N_t=None):
     y = read_pickle(target_data_path)
     if N_t:
         y = y[:, -N_t:]
-    y = y - y.mean(axis=1).reshape(-1,1)
 
+    state_point_file = workspace/"signac_statepoint.json"
+    with open(state_point_file) as f:
+        sp = json.load(f)
+    
+    bcs = {} 
+    for sample_name in sp['aggre_sp']:
+        bc = sp['aggre_sp'][sample_name]["cfd_sp"]['bc']
+        sample = int(sample_name.split("_")[-1])
+        bcs[sample] = bc
+
+    for sample in range(N_sample):
+        bc = bcs[bcs[sample]==sample]
+        T_c = bc['T_COLD_C']
+        T_h = bc['T_HOT_C']
+        y[sample, ...] = (y[sample, ...] - T_c)/(T_h)
+
+    y = y - y.mean(axis=1).reshape(-1,1)
 
     # print("--- Load data ---")
     # print(f"X shape: {X.shape}")
@@ -263,18 +281,6 @@ def sliding_window(X,
     X_sequences_from_indices = np.array([X[..., ind] for ind in indices])
     return X_sequences_from_indices
 
-if __name__ =="__main__":
-
-    # Load data 
-    X, y = get_training_pairs()
-
-    # Post-process trainig pairs 
-    X, y = sliding_training_pairs(X, y)
-    print(f"Shape of data:")
-    print(f"X: {X.shape}")
-    print(f"y: {y.shape}")
-
-
 
 
 class ModesManager:
@@ -326,7 +332,7 @@ class ModesManager:
         T_walls = {}
         for theta_deg in [0, 5, 10, 15, 20]:
             try:
-                _, T_wall = get_training_pairs(self.workspace, theta_deg=15)
+                _, T_wall = get_training_pairs(self.workspace, theta_deg=theta_deg)
                 T_walls[str(theta_deg)] = T_wall
             except:
                 print(f"No data of theta_deg={theta_deg} exists in workspace {self.workspace}")
