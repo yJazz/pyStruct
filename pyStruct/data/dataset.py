@@ -113,7 +113,8 @@ def get_training_pairs(workspace, theta_deg, N_t=None):
 
 
     # Weighted by coherent strength
-    # coherent_strength = X_spatials[:, :, :, loc_index]
+    coherent_strength = X_spatials[:, :, :, loc_index]
+    print(f"Coherent strength: {coherent_strength.shape}")
     # for sample in range(N_sample):
     #     for mode in range(N_mode):
     #         X_temporals[sample, mode, :] = X_temporals[sample, mode, :] * np.linalg.norm(coherent_strength[sample, mode, :])

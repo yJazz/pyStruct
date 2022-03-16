@@ -44,8 +44,9 @@ def objective_function(w, X_r, y_r, fft_loss_weight, std_loss_weight, min_loss_w
 
 def get_constraint(N_modes):
     cons = []
-    for i in range(N_modes-1):
-        con = lambda x: abs(x[i+1]) - abs(x[i])
+    for i in range(N_modes):
+        # con = lambda x: abs(x[i+1]) - abs(x[i])
+        con = lambda x: x[i]
         cons.append({'type': 'ineq', 'fun': con})
     return cons
 
@@ -53,7 +54,7 @@ def optimize(X_r, y_r, maxiter,
              fft_loss_weight, std_loss_weight, min_loss_weight, max_loss_weight, hist_loss_weight):
     N_modes, N_t = X_r.shape
     constraint = get_constraint(N_modes)
-    bounds = [(-1, 1) for i in range(N_modes)]
+    # bounds = [(-1, 1) for i in range(N_modes)]
     initial_weightings = initialize_loss_weighting(X_r, y_r)
     w_init = np.random.random(size=(N_modes,1)) * 1
     result = minimize(
@@ -61,7 +62,8 @@ def optimize(X_r, y_r, maxiter,
         w_init, 
         method='SLSQP',
         args=(X_r, y_r, fft_loss_weight, std_loss_weight, min_loss_weight, max_loss_weight, hist_loss_weight, initial_weightings),
-        # bounds=bounds, 
+        # bounds= bounds, 
+        bounds = ((0, None) for i in range(N_modes)),
         constraints=constraint,  
         options={'maxiter': maxiter})
     return result.x
