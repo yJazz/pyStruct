@@ -41,21 +41,24 @@ def objective_function(w, X_r, y_r, fft_loss_weight, std_loss_weight, min_loss_w
     # })
     return error
 
-def get_constraint(N_modes):
+def get_constraint(x):
     cons = []
-    for i in range(N_modes):
-        # con = lambda x: abs(x[i]) - abs(x[i+1])
-        con = lambda x: x[i]
+    for i in range(len(x)-1):
+        con = lambda x: x[i] > x[i+1]
+        # con = lambda x: x[i]
         cons.append({'type': 'ineq', 'fun': con})
     return cons
+def get_constraint(x):
+    return tuple([{'type':'ineq', 'fun': lambda x,i=i: x[i] - x[i+1]} for i in range(len(x)-1)] )
 
 def optimize(X_r, y_r, maxiter, 
              fft_loss_weight, std_loss_weight, min_loss_weight, max_loss_weight, hist_loss_weight):
     N_modes, N_t = X_r.shape
-    constraint = get_constraint(N_modes)
     # bounds = [(-1, 1) for i in range(N_modes)]
     initial_weightings = initialize_loss_weighting(X_r, y_r)
-    w_init = np.random.random(size=(N_modes,1)) * 1
+    # w_init = np.random.random(size=(N_modes,1)) * 1
+    w_init = np.arange(N_modes)*0.1
+    constraint = get_constraint(w_init)
     result = minimize(
         objective_function, 
         w_init, 
@@ -82,7 +85,7 @@ def optm_workflow(config, X, y):
         proc_id = f'proc_{i}'
         print(f"Optimizing case {i}")
         # Get modes in single case
-        X_r = X[i, config['mode_ids'], :]
+        X_r = X[i, range(config['N_modes']), :]
         y_r = y[i, ...]
 
 
@@ -103,7 +106,7 @@ def optm_workflow(config, X, y):
         bc = aggre_sp[proc_id]['cfd_sp']['bc']
         for key in bc.keys():
             record[key] = bc[key]
-        for mode in config['mode_ids']:
+        for mode in range(config['N_modes']):
             record[f'w{mode}'] = weights[mode]
         record = pd.DataFrame(record, columns=record.keys(), index=[0])
 

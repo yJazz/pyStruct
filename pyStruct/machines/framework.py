@@ -157,15 +157,31 @@ class TimeSeriesPredictor:
         X_s = pods.X_s
         X_spatials = pods.X_spatials
         coherent_strength = X_spatials[:, :, :, loc_index]
+        X = np.zeros((pods.N_samples, config['N_modes'], pods.N_t))
+
+        useful_modes_idx=[]
         for sample in range(pods.N_samples):
             cs = coherent_strength[sample, :, :]
-            # for mode in range(pods.N_modes):
-            #     cs[mode, :] = cs[mode, :] * X_s[sample, mode]
-            sort_key = lambda vec: np.linalg.norm(vec)
-            args = np.apply_along_axis(sort_key, axis=1, arr=cs).argsort()[::-1]
-            X_temporals[sample, ...] = X_temporals[sample, args, :] * sort_key(cs[args, :])
-        X = X_temporals
-        return X, y 
+            convert_to_norm = lambda vec: np.linalg.norm(vec) 
+            norm_of_cs = np.apply_along_axis(convert_to_norm, axis=1, arr=cs)
+            for mode in range(pods.N_modes):
+                norm_of_cs[mode] = norm_of_cs[mode] * X_s[sample, mode]
+                
+            args = np.argsort(norm_of_cs)[::-1][:config['N_modes']]
+            if sample == 0:
+                print(norm_of_cs)
+                print(f'args= {args}')
+            # args = np.apply_along_axis(convert_to_norm, axis=1, arr=cs).argsort()[::-1][:self.N_modes]
+            useful_modes_idx.append(args)
+
+            for mode, arg in enumerate(args):
+                X[sample, mode, :] = X_temporals[sample, arg, :] 
+            # X[sample, mode, :] = X_temporals[sample, mode, :]
+
+        # return X, y, useful_modes_idx
+        # X = X_temporals
+        useful_modes_idx = [list(range(20)) for _ in range(20)]
+        return X, y, useful_modes_idx
     
     def optimize(self, workspace, theta_deg, loss_weights_config=None):
 
@@ -176,12 +192,12 @@ class TimeSeriesPredictor:
             assert len(loss_weights_config) == 5, "Need to specify: fft, std, min, max, hist"
 
         if not loss_weights_config:
-            loss_weights_config = [10, 1, 1, 1, 1]
+            loss_weights_config = [1, 1, 1, 1, 1]
 
         config ={
             'workspace': workspace,
             'theta_deg': theta_deg,
-            'mode_ids': range(self.N_modes),
+            'N_modes': self.N_modes,
             'sample_ids': range(self.N_samples),
             'N_t': self.N_t,
             "fft_loss_weight":loss_weights_config[0],
@@ -192,7 +208,7 @@ class TimeSeriesPredictor:
             "maxiter":1000,
         }
 
-        X, y = self.get_training_pairs(config)
+        X, y, _ = self.get_training_pairs(config)
         weights_table = optm_workflow(config, X, y)
         config['weights_table'] = weights_table
         return config
