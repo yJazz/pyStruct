@@ -42,24 +42,30 @@ def initialize_wp_table(config):
         Process all the mode info into features
     """
     print(f"Initalize wp tables")
-    singulars = read_pickle( Path(config['workspace']) /"features"/ "X_singulars.pkl")
-    spatials = read_pickle(Path(config['workspace']) / "features"/ "X_spatials.pkl")
-    temporals = read_pickle(Path(config['workspace']) /"features"/ "X_temporals.pkl")
-    coords = read_pickle(Path(config['workspace']) / "target"/ 'coords.pkl')
-
-
+    pods = ModesManager(name='', workspace=config['workspace'])
+    singulars = pods.X_s
+    spatials = pods.X_spatials
+    temporals = pods.X_temporals
+    coords = pods.coords
+    bcs = pods.bcs # pd.DataFrame
+    
     # Features
     wp = pd.DataFrame()
-    bcs = get_bcs_from_signac(config['workspace'])
     for theta_deg in config['theta_degs']:
+        loc_index = pods.T_walls[str(theta_deg)]['loc_index']
+        coherent_strength = spatials[:, :, :, loc_index]
         fluc_stds = get_fluc_range(config['workspace'], theta_deg)
 
         for sample in range(config["N_samples"]):
-            m_c = bcs[sample]['M_COLD_KGM3S']
-            m_h = bcs[sample]['M_HOT_KGM3S']
-            T_c = bcs[sample]['T_COLD_C']
-            T_h = bcs[sample]['T_HOT_C']
+            bc = bcs[bcs['sample']==sample]
+            assert len(bc) != 0, "No such bc is found" 
+            m_c = bc['m_c'].iloc[0]
+            m_h = bc['m_h'].iloc[0]
+            T_c = bc['T_c'].iloc[0]
+            T_h = bc['T_h'].iloc[0]
             fluc_std = fluc_stds[sample]
+            cs = coherent_strength[sample, :, :]
+            norm_of_cs = np.linalg.norm(cs, axis=1)
 
             for mode in range(config['N_modes']):
                 d = {
@@ -72,6 +78,7 @@ def initialize_wp_table(config):
                     'T_h':float(T_h),
                     'singular': singulars[sample, mode], 
                     'spatial_strength': get_spatial_strength(spatials[sample, mode, ...], coords[sample], theta_deg/180*np.pi),
+                    'probe_strength': norm_of_cs[mode] * singulars[sample, mode],
                     'temporal_behavior': get_temporal_behavior(temporals[sample, mode, :]), 
                     'fluc_std': fluc_std
                 }
@@ -171,7 +178,7 @@ class TimeSeriesPredictor:
             useful_modes_idx.append(args)
 
             for mode, arg in enumerate(args[:config['N_modes']]):
-                X[sample, mode, :] = X_temporals[sample, arg, :] * cs[arg, 0]
+                X[sample, mode, :] = X_temporals[sample, arg, :] * cs[arg, 0]*10
             # X[sample, mode, :] = X_temporals[sample, mode, :]
 
         # return X, y, useful_modes_idx
