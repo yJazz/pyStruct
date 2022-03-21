@@ -48,7 +48,6 @@ class VisualizeOptimization:
             N_t=self.config['N_t'], 
             wp=self.wp
         )
-        wp = self.wp
         X, y, idx = ts.get_training_pairs(self.config)
 
         # Plot 
@@ -64,14 +63,13 @@ class VisualizeOptimization:
             ax_1.set_title(sample)
             y_pred = np.array(
                     [X[sample, mode, :] * weights[sample][mode] for mode in range(self.config['N_modes']) ] ).sum(axis=0)
-            ax_1.plot(y[sample][-self.config['N_t']:])
-            ax_1.plot(y_pred)
+            ax_1.plot(y[sample][-self.config['N_t']:], label='True')
+            ax_1.plot(y_pred, label='Pred')
 
             # Ax2 : Stem
-            all_weights = np.zeros(20)
-            for id, w in zip(idx[sample], weights[sample]):
-                all_weights[id] = w
-            ax_2
+            all_weights = np.zeros(self.N_samples)
+            for i, id in enumerate(idx[sample]):
+                all_weights[id] = weights[sample][i]
             ax_2.stem(all_weights)
             ax_2.set_xticks(np.arange(len(idx[sample])))
             ax_2.set_xticklabels(idx[sample])

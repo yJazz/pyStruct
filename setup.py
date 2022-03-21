@@ -7,7 +7,7 @@ import shutil
             
 setup(
     name='pyStruct',
-    version="0.0.6",
+    version="0.0.9",
     license='None',
     author='yujou',
     author_email='yjouwang@mit.edu',
