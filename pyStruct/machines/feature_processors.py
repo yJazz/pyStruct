@@ -1,6 +1,10 @@
 import pandas as pd
 import numpy as np
 from scipy.fft import fft, fftfreq
+from typing import Protocol
+
+from pyStruct.data.dataset import ModesManager
+from pyStruct.machines.structures import LookupStructure
 
 
  
@@ -104,3 +108,94 @@ def get_temporal_behavior(temporal_mode):
     freq, psd = get_psd(0.005, temporal_mode)
     sum = psd[:20].sum() *1E4
     return sum
+
+
+class FeatureProcessor(Protocol):
+    """ This class defines the protocol of the feature processor 
+        If the object has get_X(), and get_y(), it is a feature processor
+    """
+
+    def get_X(self):
+        pass
+
+    def get_y(self):
+        pass
+
+    def create_featrue_table(self):
+        pass
+    
+
+class CoherentStrength:
+    """ 
+    The pod modes' impact on T_probe is ranked by the
+    1. The global energy of the mode (singular value)
+    2. The strength of the coherent structure (spatiral )
+    """
+    def __init__(self, config):
+        self.config = config
+        self.pods = ModesManager(name='', workspace=config['workspace'], to_folder=None)
+        # self.features = ['sample', 'mode', 'theta_deg', 'singualr', 'probe_strength']
+        self.feature_table = self._create_feature_table(config['theta_deg'])
+    
+    def _create_feature_table(self, theta_deg):
+        # Read statepoint
+        bcs = self.pods.bcs
+
+
+        X_temporals = self.pods.X_temporals
+        X_s = self.pods.X_s
+        X_spatials = self.pods.X_spatials
+
+        N_sample, N_mode, _, _ = X_spatials.shape
+        
+        loc_index = self.pods.T_walls[str(theta_deg)]['loc_index']
+        X_probe = X_spatials[:, :, :, loc_index]
+
+        convert_to_norm = lambda vec: np.linalg.norm(vec) 
+        X_probe_norm = np.apply_along_axis(convert_to_norm, axis=2, arr=X_probe)
+
+
+        singulars_flat = [X_s[sample, mode] for sample in range(N_sample) for mode in range(N_mode)]
+        probe_strength_flat = [X_probe_norm[sample, mode] for sample in range(N_sample) for mode in range(N_mode)]
+
+        mc_flat = [bcs[bcs['sample'] == sample]['m_c'].iloc[0] for sample in range(N_sample) for mode in range(N_mode)]
+        mh_flat = [bcs[bcs['sample']==sample]['m_h'].iloc[0] for sample in range(N_sample) for mode in range(N_mode)]
+        vel_ratio = np.array(mc_flat)/np.array(mh_flat)
+        Tc_flat = [bcs[bcs['sample']==sample]['T_c'].iloc[0] for sample in range(N_sample) for mode in range(N_mode)]
+        Th_flat = [bcs[bcs['sample']==sample]['T_h'].iloc[0] for sample in range(N_sample) for mode in range(N_mode)]
+
+        return pd.DataFrame({
+            'sample': [sample for sample in range(N_sample) for mode in range(N_mode)],
+            'mode': [mode for sample in range(N_sample) for mode in range(N_mode)],
+            'm_c': mc_flat,
+            'm_h':mh_flat,
+            'vel_ratio': vel_ratio,
+            'T_c':Tc_flat,
+            'T_h':Th_flat,
+            'singular': singulars_flat,
+            'probe_strength': probe_strength_flat
+            })
+
+    def get_X(self):
+
+        X_temporals = self.pods.X_temporals
+        X = np.zeros((self.pods.N_samples, self.config['N_modes'], self.pods.N_t))
+        useful_modes_idx = []
+
+        for sample in range(self.pods.N_samples):
+            sorted_features_per_sample = self.feature_table[self.feature_table['sample']==sample].sort_values(by=['probe_strength'], ascending=False)
+            args = sorted_features_per_sample['mode'].values
+            cs = sorted_features_per_sample['probe_strength'].values
+            for mode, arg in enumerate(args[:self.config['N_modes']]):
+                X[sample, mode, :] = X_temporals[sample, arg, :] * cs[arg] *10
+            useful_modes_idx.append(args)
+        return X, useful_modes_idx
+        
+    def get_y(self):
+        y = self.pods.T_walls[str(self.config['theta_deg'])]['T_wall']
+        return y
+
+
+    
+
+

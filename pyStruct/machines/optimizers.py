@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import wandb
 from scipy.optimize import minimize
+from typing import Protocol
 
 from pyStruct.machines.loss import fft_loss, std_loss, min_loss, max_loss, hist_loss
 
@@ -71,48 +72,6 @@ def optimize(X_r, y_r, maxiter,
     return result.x
 
 
-def optm_workflow(config, X, y):
-    # Get X,y pair
-
-    # Read statepoint
-    with open(Path(config['workspace'])/"signac_statepoint.json") as f:
-        sp = json.load(f)
-        aggre_sp = sp['aggre_sp']
-
-    # Run optimization and Create table 
-    weights_df = pd.DataFrame()
-    for i in config['sample_ids']:
-        proc_id = f'proc_{i}'
-        print(f"Optimizing case {i}")
-        # Get modes in single case
-        X_r = X[i, range(config['N_modes']), :]
-        y_r = y[i, ...]
-
-
-        fft_loss_weight=config['fft_loss_weight']
-        std_loss_weight = config['std_loss_weight']
-        min_loss_weight = config['min_loss_weight']
-        max_loss_weight = config['max_loss_weight']
-        hist_loss_weight = config['hist_loss_weight']
-        max_iter=config['maxiter']
-
-        weights = optimize(X_r, y_r, maxiter=max_iter,
-                            fft_loss_weight=fft_loss_weight, 
-                           std_loss_weight=std_loss_weight, min_loss_weight=min_loss_weight, max_loss_weight=max_loss_weight, hist_loss_weight=hist_loss_weight)
-        
-        # Record boundary conditions and weights
-        record = {}
-        record['sample']=i
-        bc = aggre_sp[proc_id]['cfd_sp']['bc']
-        for key in bc.keys():
-            record[key] = bc[key]
-        for mode in range(config['N_modes']):
-            record[f'w{mode}'] = weights[mode]
-        record = pd.DataFrame(record, columns=record.keys(), index=[0])
-
-        weights_df = pd.concat([weights_df, record], axis=0, ignore_index=True)
-    
-    return weights_df
 
 def reconstruct_optimize(config: dict):
     X, y = get_training_pairs(
@@ -135,5 +94,57 @@ def reconstruct_optimize(config: dict):
     return y[config['sample_ids'], ...], y_preds
 
 
+
+
+class Optimizer(Protocol):
+    def init_config(self):
+        pass
+    def optimize(self):
+        pass
+
+class PositiveWeights:
+    def __init__(self, loss_weights_config=None):
+        if loss_weights_config:
+            assert len(loss_weights_config) == 5, "Need to specify: fft, std, min, max, hist"
+
+        if not loss_weights_config:
+            loss_weights_config = [1, 1, 1, 1, 1]
+
+        self.config ={
+            "fft_loss_weight":loss_weights_config[0],
+            "std_loss_weight": loss_weights_config[1],
+            "min_loss_weight":loss_weights_config[2],
+            "max_loss_weight":loss_weights_config[3], 
+            "hist_loss_weight":loss_weights_config[4],
+            "maxiter":1000,
+        }
+
+    def optimize(
+        self,
+        X_r, 
+        y_r, 
+        ):
+
+        fft_loss_weight=self.config['fft_loss_weight']
+        std_loss_weight = self.config['std_loss_weight']
+        min_loss_weight = self.config['min_loss_weight']
+        max_loss_weight = self.config['max_loss_weight']
+        hist_loss_weight = self.config['hist_loss_weight']
+        max_iter=self.config['maxiter']
+
+        N_modes, N_t = X_r.shape
+        initial_weightings = initialize_loss_weighting(X_r, y_r)
+        w_init = np.arange(N_modes)*0.1
+        constraint = get_constraint(w_init)
+        result = minimize(
+            objective_function, 
+            w_init, 
+            method='SLSQP',
+            args=(X_r, y_r, fft_loss_weight, std_loss_weight, min_loss_weight, max_loss_weight, hist_loss_weight, initial_weightings),
+            bounds = ((0, None) for i in range(N_modes)),
+            constraints=constraint,  
+            options={'maxiter': max_iter}
+            )
+        return result.x
 
 

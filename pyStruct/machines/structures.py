@@ -15,7 +15,7 @@ from sklearn.metrics import mean_squared_error
 from sklearn import ensemble
 
 import sys
-sys.path.insert(0, r"F:\project2_phD_bwrx\code\drivers")
+from pyStruct.data.dataset import read_pickle
 
 class LookupStructure:
     def __init__(self, df, x_labels, y_labels):
@@ -52,8 +52,6 @@ class LookupStructure:
         input_df = pd.DataFrame(input_dict, index=[0])
         df = self.compute_mode_distances(mode, input_df)
         return df.iloc[df['distance'].argmin(), :]
-
-
 
 
 
@@ -101,6 +99,51 @@ def visualize_libray_matrix(sps, m_c, vel_ratio, theta_deg):
     plt.title("Inlet: $m_h$=%.2lf, $m_c$=%.2lf  kg/s"%(m_c/vel_ratio, m_c))
     plt.show(block=False)
     return 
-if __name__ == "__main__":
-    # Get the weights property table
-    wp_table_path = r"F:\project2_phD_bwrx\code\drivers\linear_weights_prediction\data\wp_0_15.csv"
+
+
+class StructurePredictor:
+    def __init__(self, wp, x_labels, y_labels):
+        self.wp = wp
+        self.x_labels = x_labels
+        self.y_labels = y_labels
+
+    def train(self):
+        sps = []
+        modes = self.wp['mode'].unique()
+        for mode in modes:
+            wp_mode = self.wp[self.wp['mode'] == mode]
+            params = {'n_estimators': 100, 'max_depth': 7, 'min_samples_split': 2, 'min_samples_leaf': 1 }
+            sp = LookupStructure(wp_mode, self.x_labels, self.y_labels)
+            sp.create_model_and_fit(params)
+            sps.append(sp)
+        self.sps = sps
+        return  
+
+    def read(self, file_path):
+        """ Read the sps from file"""
+        assert file_path.endswith('.pkl'), "Structure should be a pickle"
+
+        sps = read_pickle(file_path) 
+        self.sps = sps
+        return 
+
+    def compose_baseX_and_features(self, X_lib, input_dict):
+        """ Compose X_compose matrix from the library X"""
+
+        print(f"--- finding base modes---")
+        # Structure predictors
+        sps = self.sps
+        X_compose = np.zeros(X_lib.shape[-2:])
+        features = pd.DataFrame()
+        modes = self.wp['mode'].unique()
+
+        for i, mode in enumerate(modes):
+            mode = int(mode)
+            # mode result 
+            m = sps[mode].get_mode_deterministic_from_library(mode, input_dict)
+            sample = int(m['sample'])
+            features = pd.concat([features, m], ignore_index = True, axis=1)
+            X_compose[i, :] = X_lib[sample, mode, :]
+        features = features.transpose()
+
+        return X_compose, features
