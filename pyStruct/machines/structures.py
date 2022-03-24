@@ -1,9 +1,11 @@
 from pathlib import Path
+import pickle
 import pandas as pd
 import numpy as np
 import seaborn as sns
 sns.set_style("whitegrid")
 import matplotlib.pyplot as plt
+from typing import Protocol
 
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.multioutput import MultiOutputRegressor
@@ -34,6 +36,15 @@ def visualize_libray_matrix(sps, m_c, vel_ratio, theta_deg):
     plt.show(block=False)
     return 
 
+class StructurePredictor(Protocol):
+    def train(self):
+        pass
+    def load(self):
+        pass
+    def predict(self):
+        pass
+    def predict_and_compose(self):
+        pass
 
 class LookupStructure:
     """ Given x_labels, output y_labels
@@ -51,6 +62,10 @@ class LookupStructure:
 
         self.models = []
         self.norm = StandardScaler()
+        self.save_folder = Path(self.config['save_to']) / 'structure_predictor'
+        self.save_folder.mkdir(parents=True, exist_ok=True)
+        self.save_as = self.save_folder / "lookup_structures.pkl"
+
     
     def train(self, feature_table):
         self.feature_table = feature_table
@@ -67,6 +82,18 @@ class LookupStructure:
 
             model = self._create_model_and_fit(x, y)
             self.models.append(model)
+        
+        # Save the models
+        with open(self.save_as, 'wb') as f:
+            pickle.dump((self.models, self.norm), f)
+
+    def load(self, feature_table):
+        self.feature_table = feature_table
+        print("load lookup-structure models")
+        with open(self.save_as, 'rb') as f:
+            self.models, self.norm = pickle.load(f)
+        return
+
 
     def _create_model_and_fit(self, X, y):
         model = MultiOutputRegressor(ensemble.GradientBoostingRegressor(**self.params))

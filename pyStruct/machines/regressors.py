@@ -1,4 +1,4 @@
-from tkinter import N
+import pickle
 import numpy as np
 from typing import Protocol
 
@@ -6,6 +6,7 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn import ensemble
 from sklearn.metrics import mean_squared_error, mean_absolute_percentage_error
 from sklearn.inspection import permutation_importance
+from scipy.stats import halfcauchy, norm
 import matplotlib.pyplot as plt
 
 from pathlib import Path
@@ -20,6 +21,76 @@ from theano import shared
 from sklearn.preprocessing import StandardScaler
 
 
+
+
+
+class VisualizeOptimization:
+    def __init__(self, config, ncols=5):
+        self.config = config
+        self.wp = self._init_data(config)
+
+        # plot setting
+        self.ncols=5
+        self.N_samples = config['N_samples']
+        self.nrows = ceil(self.N_samples/self.ncols)
+
+    def _init_data(self, config):
+        wp_path = config['save_to']/'ts_regression'/'wp.csv'
+        wp = pd.read_csv(wp_path)
+        return wp
+
+    def read_weights_from_table(self, theta_deg, samples):
+        wp = self.wp
+        weights ={}
+        for sample in samples:
+            weights[sample] = []
+            wp_sub = wp[(wp['theta_deg']==theta_deg) & (wp['sample']==sample)]
+            for mode in range(self.config['N_modes']):
+                w = wp_sub[wp_sub['mode']==mode].w.iloc[0]
+                weights[sample].append(w)
+        
+        return weights
+
+
+    
+    def plot_T_probe(self, theta_deg, weights, figsize=(16, 12)):
+        # get xy
+        self.config['theta_deg'] = theta_deg
+        ts = TimeSeriesPredictor(
+            N_samples=self.config['N_samples'], 
+            N_modes=self.config['N_modes'], 
+            N_t=self.config['N_t'], 
+            wp=self.wp
+        )
+        X, y, idx = ts.get_training_pairs(self.config)
+
+        # Plot 
+        fig_1, axes_1 = plt.subplots(nrows=self.nrows, ncols=self.ncols, figsize=figsize)
+        fig_2, axes_2 = plt.subplots(nrows=self.nrows, ncols=self.ncols, figsize=figsize)
+
+
+        for sample in weights.keys():
+            ax_1 = axes_1[sample//self.ncols, sample%self.ncols]
+            ax_2 = axes_2[sample//self.ncols, sample%self.ncols]
+
+            # predict 
+            ax_1.set_title(sample)
+            y_pred = np.array(
+                    [X[sample, mode, :] * weights[sample][mode] for mode in range(self.config['N_modes']) ] ).sum(axis=0)
+            ax_1.plot(y[sample][-self.config['N_t']:], label='True')
+            ax_1.plot(y_pred, label='Pred')
+
+            # Ax2 : Stem
+            all_weights = np.zeros(self.N_samples)
+            for i, id in enumerate(idx[sample]):
+                all_weights[id] = weights[sample][i]
+            ax_2.stem(all_weights)
+            ax_2.set_xticks(np.arange(len(idx[sample])))
+            ax_2.set_xticklabels(idx[sample])
+        plt.show()
+
+        fig_1.savefig(self.config['save_to']/'figures'/f'optm_pred_theta_{theta_deg}.png')
+        fig_2.savefig(self.config['save_to']/'figures'/f'optm_w_theta_{theta_deg}.png')
 
 
 def plot_regression_deviance(reg, params, X_test_norm, y_test):
@@ -153,6 +224,9 @@ class WeightsPredictor(Protocol):
         pass
     def predict(self):
         pass
+    def load(self):
+        pass
+
 
 class GbRegressor:
     def __init__(self, config):
@@ -164,6 +238,9 @@ class GbRegressor:
             "learning_rate": 0.005,
             "loss": "squared_error",
         }
+        self.save_folder = Path(self.config['save_to']) / 'weights_predictor'
+        self.save_folder.mkdir(parents=True, exist_ok=True)
+        self.save_as = self.save_folder / "gb_regressor.pkl"
     
     def train(self, feature_table, show=False):
         self.regs = []
@@ -194,7 +271,18 @@ class GbRegressor:
                 # plot_regression_deviance(reg, self.params, X_test_norm, y_test)
                 # plot_feature_importance(reg, feature_names, X_test_norm, y_test)
                 plot_weights_accuracy_scatter(reg, X_train_norm, y_train, X_test_norm, y_test)
+
+        # Save 
+        with open(self.save_as, 'wb') as f:
+            pickle.dump((self.regs, self.norms), f)
         return feature_table
+    
+    def load(self, feature_table):
+        print("load file")
+        with open(self.save_as, 'rb') as f:
+            self.regs, self.norms = pickle.load(f)
+        return
+
 
     def predict(self, features: np.ndarray):
         assert hasattr(self, 'regs'), "No regressors exist. Train or Read first"
@@ -219,22 +307,9 @@ class BayesianModel:
         self.var_names = config['y_labels']
         self.target_name = 'w'
 
-        self.save_to = Path(config['save_to'])/f"bayesian_model"
-        self.save_to.mkdir(parents=True, exist_ok=True)
-
-
-    def build_model(self):
-        with pm.Model() as model:
-            # Hyperpriors for group nodes
-            eps = pm.HalfCauchy("eps", 4)
-            a = pm.Normal('a', mu=-1.3, sd=10)
-            mu = a
-            for i, var_name in enumerate(self.var_names):
-                b_i = pm.Normal(var_name, mu = -1.1, sd= 5 )
-                mu = a + b_i * self.inputs_shared[var_name]
-            w = pm.Normal( "w", mu=mu, sigma=eps, observed=self.target)
-        self.model = model
-        return
+        self.save_folder = Path(config['save_to'])/f"bayesian_model"
+        self.save_folder.mkdir(parents=True, exist_ok=True)
+        self.save_as = self.save_folder/"idata.nc"
 
     def _init_data(self, feature_table):
 
@@ -249,6 +324,18 @@ class BayesianModel:
             self.inputs_shared[var_name] = shared(input) # the shared tensor, which can be modified later
             self.standrdizers[var_name] = standrdizer
             self.inputs[var_name] = input # this won't change
+
+    def build_model(self):
+        with pm.Model() as model:
+            # Hyperpriors for group nodes
+            eps = pm.HalfCauchy("eps", 4)
+            a = pm.Normal('a', mu=0.5, sd=1)
+            mu = a
+            for i, var_name in enumerate(self.var_names):
+                b_i = pm.Normal(var_name, mu = -1.1, sd= 5 )
+                mu = a + b_i * self.inputs_shared[var_name]
+            w = pm.Normal( "w", mu=mu, sigma=eps, observed=self.target)
+        self.model = model
         return
 
     def transform_input(self, var_name):
@@ -256,24 +343,31 @@ class BayesianModel:
         var = standardizer.fit_transform(self.feature_table[var_name].values.reshape(-1,1)).flatten()
         return var, standardizer
     
-    def train(self, feature_table, show=False):
+    def train(self, feature_table, show=False, samples=1000):
         """ Inference """
         self._init_data(feature_table)
         self.build_model()
         with self.model:
-            step = pm.NUTS(target_accept=0.95)
-            idata = pm.sample(1000, step=step, tune=1000, return_inferencedata=True, chains=1)
+            # step = pm.NUTS(target_accept=0.95)
+            idata = pm.sample(samples, tune=1000, return_inferencedata=True, chains=1)
         self.idata = idata
-        idata.to_netcdf(self.save_to/"idata.nc")
+        idata.to_netcdf(self.save_as)
+        with open(self.save_folder / "standardizer.pkl", 'wb') as f:
+            pickle.dump(self.standrdizers, f)
         return 
 
-    def read_inference(self):
-        self.idata = az.from_netcdf(self.save_to/"idata.nc")
+    def load(self, feature_table):
+        print("load Bayesian weights predictor")
+        self._init_data(feature_table)
+        self.build_model()
+        self.idata = az.from_netcdf(self.save_folder/"idata.nc")
+        with open(self.save_folder / "standardizer.pkl", 'rb') as f:
+            self.standrdizers = pickle.load(f)
         return
 
     def predict(self, features):
         assert features.shape == (self.config['N_modes'], len(self.config['y_labels']))
-        features = features.to_numpy()
+        # features = features.to_numpy()
 
         df = az.summary(self.idata)
 
@@ -285,8 +379,25 @@ class BayesianModel:
             for i, var_name in enumerate(self.var_names):
                 b_i = df.loc[var_name, 'mean']
                 w_preds += b_i*self.standrdizers[var_name].transform(features[mode, i].reshape(-1, 1))
+            
             weights.append(w_preds[0])
         return weights
+    def sampling(self, features, N_realizations=100):
+        df = az.summary(self.idata)
+
+        # Get the mean value
+        sigma = df.loc['eps', 'mean']
+        a = df.loc['a', 'mean']
+        weights_samples =[]
+        for mode in range(self.config['N_modes']):
+            mu = a
+            for i, var_name in enumerate(self.var_names):
+                b_i = df.loc[var_name, 'mean']
+                mu += b_i*self.standrdizers[var_name].transform(features[mode, i].reshape(-1, 1))
+
+            w_preds = norm.rvs(loc=mu, scale=sigma, size=(1,N_realizations))
+            weights_samples.append(w_preds)
+        return weights_samples
 
     def counterfactual_plot(self, x, cvar_name, N_samples=100):
         assert len(x) == len(self.target)
@@ -313,6 +424,7 @@ class BayesianModel:
         w_preds = a
         for var_name in self.var_names:
             b_i = df.loc[var_name, 'mean']
+            # w_preds += b_i*self.standrdizers[var_name].transform(self.inputs[var_name])
             w_preds += b_i*self.inputs[var_name]
         
         self.feature_table['w_pred_mean'] = w_preds
@@ -326,7 +438,8 @@ class BayesianModel:
             mode = self.feature_table.loc[i, 'mode']
             w_pred = self.feature_table.loc[i, 'w_pred_mean']
             weights[sample][mode] = w_pred
+
+        print(self.feature_table)
+        print(weights[sample])
         
-        vs = VisualizeOptimization(config)
-        vs.plot_T_probe(theta_deg=0, weights=weights)
         return

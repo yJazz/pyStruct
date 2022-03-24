@@ -1,4 +1,7 @@
+from pathlib import Path
+import json
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 
 
@@ -22,29 +25,48 @@ class TwoMachineFramework:
     def _init_data(self):
         self.feature_table = self.feature_processor.feature_table
 
+        # save the config
+        self.save_to = Path(self.config['save_to'])
+        config_file = self.save_to/'config.json'
+        with open(config_file, 'w') as f:
+            json.dump(self.config, f)
+    
+        # check file
+        self._optm_feature_table_file = self.save_to / 'feature_table.csv'
+
     def train(self, show=False):
         # Weight optimization 
         print(f'=========== Optimization ==========')
-        self._optimize()
+        if not self._optm_feature_table_file.exists():
+            self._optimize()
+        else:
+            self._read_optm_feature_table()
 
         # Time-series Predictor: the models are saved in the weigths_predictors
         # check weights_predictors
         print(f'=========== Weights ==========')
-        self.weights_predictor.train(self.feature_table)
+        if not self.weights_predictor.save_as.exists():
+            self.weights_predictor.train(self.feature_table)
+        else:
+            self.weights_predictor.load(self.feature_table)
 
         # Structure Predictor
         print(f'=========== Structures ==========')
-        self.structure_predictor.train(self.feature_table)
+        if not self.structure_predictor.save_as.exists():
+            self.structure_predictor.train(self.feature_table)
+        else:
+            self.structure_predictor.load(self.feature_table)
+
     
-    def predict(self, input_dict: dict):
-        assert list(input_dict.keys())  == self.config['x_labels']
+    def predict(self, inputs: dict):
+        assert list(inputs.keys())  == self.config['x_labels']
 
         # Retrieve base X: 
         X, _ = self.feature_processor.get_training_pairs()
 
 
         # Predict structures
-        X_compose, features  = self.structure_predictor.predict_and_compose(input_dict, X)
+        X_compose, features  = self.structure_predictor.predict_and_compose(inputs, X)
 
         # Predict weights
         weights = self.weights_predictor.predict(features)
@@ -53,6 +75,25 @@ class TwoMachineFramework:
         y_pred = np.array(
             [X_compose[mode, :] * weights[mode] for mode in range(self.config['N_modes']) ] ).sum(axis=0)
         return y_pred
+
+    def sampling(self, inputs: dict, N_family=100, N_realizations=100):
+        # Retrieve base X: 
+        X, _ = self.feature_processor.get_training_pairs()
+
+
+        # Predict structures
+        X_compose, features  = self.structure_predictor.predict_and_compose(inputs, X)
+
+        # Predict weights
+        weights_samples = self.weights_predictor.sampling(features, N_realizations)
+        # Output
+        y_preds = np.zeros((self.config['N_t'], N_realizations))
+        for i in range(N_realizations):
+            y_pred = np.array(
+                [X_compose[mode, :] * weights_samples[mode][0, i] for mode in range(self.config['N_modes']) ] ).sum(axis=0)
+            y_preds[:, i] = y_pred
+        return y_preds
+
     
     def validation(self, plot=True):
         """ Visualize the training samples """
@@ -60,8 +101,9 @@ class TwoMachineFramework:
         X, y_trues = self.feature_processor.get_training_pairs()
 
         y_preds = []
+
         # Get boundary conditions
-        feature_table = self.feature_processor.feature_table
+        feature_table = self.feature_table
         for sample in range(self.config['N_samples']):
             f = feature_table[feature_table['sample'] == sample]
 
@@ -81,8 +123,8 @@ class TwoMachineFramework:
 
             ax.legend(bbox_to_anchor=(1.1, 0))
             plt.tight_layout()
+            plt.savefig(self.save_to/'validation.png')
             plt.show()
-
         return y_trues, y_preds
 
     def _optimize(self):
@@ -109,4 +151,12 @@ class TwoMachineFramework:
 
             for i, w in enumerate(weights):
                 self.feature_table.loc[id[i], 'w'] = w
+        # Save the result
+        self.feature_table.to_csv(self._optm_feature_table_file, index=None)
+        return
+
+    def _read_optm_feature_table(self):
+        print("read feature table")
+        self.feature_table = pd.read_csv(self._optm_feature_table_file)
+        self.feature_processor.feature_table = self.feature_table
         return
