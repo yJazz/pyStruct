@@ -4,7 +4,6 @@ import numpy as np
 import seaborn as sns
 sns.set_style("whitegrid")
 import matplotlib.pyplot as plt
-from collections.abc import Iterable
 
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.multioutput import MultiOutputRegressor
@@ -17,72 +16,7 @@ from sklearn import ensemble
 import sys
 from pyStruct.data.dataset import read_pickle
 
-class LookupStructure:
-    def __init__(self, df, x_labels, y_labels):
-        self.N_samples = len(df['sample'].unique())
-        self.N_modes = len(df['mode'].unique())
-        self.normalizer_x = StandardScaler()
-        self.normalizer_y = StandardScaler()
-        self.df = df
-        self.x_labels = x_labels
-        self.y_labels = y_labels
 
-        self.X = self.normalizer_x.fit_transform(df[x_labels])
-        self.y = self.normalizer_y.fit_transform(df[y_labels])
-
-    def create_model_and_fit(self, params):
-        self.model = MultiOutputRegressor(ensemble.GradientBoostingRegressor(**params))
-        self.model.fit(self.X, self.y)
-        return
-
-    def predict(self, input_df):
-        X = self.normalizer_x.transform(input_df)
-        return self.model.predict(X)
-
-    def compute_mode_distances(self, mode, input_df):
-        y_pred = self.predict(input_df)
-        df = self.df.copy()
-        df = df[df['mode'] == mode]
-        y_ref = self.normalizer_y.transform(df[self.y_labels])
-        # Get distances
-        df['distance'] = [mean_squared_error(y_pred[0], r) for r in y_ref]
-        return df
-
-    def get_mode_deterministic_from_library(self, mode, input_dict):
-        input_df = pd.DataFrame(input_dict, index=[0])
-        df = self.compute_mode_distances(mode, input_df)
-        return df.iloc[df['distance'].argmin(), :]
-
-
-
-def split_train_test(wp, train_id):
-    bool_series = wp['sample'].isin(train_id)
-    wp_train = wp[bool_series]
-    wp_test = wp[bool_series==False]
-    return wp_train, wp_test
-
-
-def get_structure_predictors_for_each_mode(wp_table_path, x_labels, y_labels, train_id=None):
-    assert Path(wp_table_path).exists()
-    wp =  pd.read_csv(wp_table_path)
-
-    train_id = range(15)
-    if train_id:
-        wp_train, wp_test = split_train_test(wp, train_id)
-    else:
-        wp_train = wp
-    # x_labels=['m_c', 'vel_ratio', 'theta_deg']
-    # y_labels=['spatial_strength', 'temporal_behavior', 'singular']
-
-    sps = []
-    for mode in range(20):
-        wp_mode = wp_train[wp_train['mode'] == mode]
-        params = {'n_estimators': 100, 'max_depth': 7, 'min_samples_split': 2, 'min_samples_leaf': 1 }
-        sp = LookupStructure(wp_mode, x_labels, y_labels)
-        sp.create_model_and_fit(params)
-        sps.append(sp)
-
-    return sps
 
 def visualize_libray_matrix(sps, m_c, vel_ratio, theta_deg):
     library_matrix = np.zeros((20, 20))
@@ -101,49 +35,76 @@ def visualize_libray_matrix(sps, m_c, vel_ratio, theta_deg):
     return 
 
 
-class StructurePredictor:
-    def __init__(self, wp, x_labels, y_labels):
-        self.wp = wp
-        self.x_labels = x_labels
-        self.y_labels = y_labels
+class LookupStructure:
+    """ Given x_labels, output y_labels
+        stratified by modes: each mode: a regression model
+    """
 
-    def train(self):
-        sps = []
-        modes = self.wp['mode'].unique()
-        for mode in modes:
-            wp_mode = self.wp[self.wp['mode'] == mode]
-            params = {'n_estimators': 100, 'max_depth': 7, 'min_samples_split': 2, 'min_samples_leaf': 1 }
-            sp = LookupStructure(wp_mode, self.x_labels, self.y_labels)
-            sp.create_model_and_fit(params)
-            sps.append(sp)
-        self.sps = sps
-        return  
+    def __init__(self, config):
+        self.config = config
+        self.params = {
+            'n_estimators': 100, 
+            'max_depth': 7, 
+            'min_samples_split': 2, 
+            'min_samples_leaf': 1 
+            }
 
-    def read(self, file_path):
-        """ Read the sps from file"""
-        assert file_path.endswith('.pkl'), "Structure should be a pickle"
+        self.models = []
+        self.norm = StandardScaler()
+    
+    def train(self, feature_table):
+        self.feature_table = feature_table
+        features = feature_table[self.config['x_labels']]
+        features_x = self.norm.fit_transform(features)
 
-        sps = read_pickle(file_path) 
-        self.sps = sps
-        return 
+        targets = feature_table[self.config['y_labels']].to_numpy()
 
-    def compose_baseX_and_features(self, X_lib, input_dict):
-        """ Compose X_compose matrix from the library X"""
 
-        print(f"--- finding base modes---")
-        # Structure predictors
-        sps = self.sps
-        X_compose = np.zeros(X_lib.shape[-2:])
-        features = pd.DataFrame()
-        modes = self.wp['mode'].unique()
+        for mode in range(self.config['N_modes']):
+            print(f'train structure predictor mode {mode}')
+            x = features_x[feature_table['mode'] == mode, :]
+            y = targets[feature_table['mode'] == mode, :]
 
-        for i, mode in enumerate(modes):
-            mode = int(mode)
-            # mode result 
-            m = sps[mode].get_mode_deterministic_from_library(mode, input_dict)
-            sample = int(m['sample'])
-            features = pd.concat([features, m], ignore_index = True, axis=1)
-            X_compose[i, :] = X_lib[sample, mode, :]
-        features = features.transpose()
+            model = self._create_model_and_fit(x, y)
+            self.models.append(model)
 
-        return X_compose, features
+    def _create_model_and_fit(self, X, y):
+        model = MultiOutputRegressor(ensemble.GradientBoostingRegressor(**self.params))
+        model.fit(X, y)
+        return model
+
+    def predict(self, inputs: dict):
+        input_df = pd.DataFrame(inputs, index=[0])
+        x = self.norm.transform(input_df)
+        
+        idx = []
+        for mode in range(self.config['N_modes']):
+            model = self.models[mode]
+            y_label = self.feature_table[self.feature_table['mode']== mode][self.config['y_labels']]
+            y_label_pred = model.predict(x)
+            id = self._compare_distance_and_return_id(y_label_pred, y_label)
+            idx.append(id)
+        return self.feature_table.iloc[idx]
+            
+    def _compare_distance_and_return_id(self, y_pred: np.ndarray, y_label: np.ndarray):
+        """ The y_pred: shape (1, N_ylabels) """
+        assert y_pred.shape == (1, len(self.config['y_labels']))
+
+        distance = np.linalg.norm( y_label - y_pred, axis=1)
+        id = distance.argmin() 
+        return y_label.index[id]
+
+    def predict_and_compose(self, inputs: dict, X_base: np.ndarray):
+        """ With the given inputs, give out the possible modes,
+            and compose new temporal bases X_compose
+        """
+        predicted_df = self.predict(inputs)
+
+        # Compose predicted bases
+        X_compose = np.zeros(X_base.shape[1:])
+
+        for i in predicted_df.index:
+            sample = predicted_df.loc[i, 'sample']
+            mode = predicted_df.loc[i, 'mode']
+            X_compose[mode, :] = X_base[sample, mode, :]
+        return X_compose, predicted_df[self.config['y_labels']].to_numpy()

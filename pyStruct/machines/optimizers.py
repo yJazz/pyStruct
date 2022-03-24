@@ -5,8 +5,93 @@ import pandas as pd
 import wandb
 from scipy.optimize import minimize
 from typing import Protocol
+from scipy.fft import fft, fftfreq
 
-from pyStruct.machines.loss import fft_loss, std_loss, min_loss, max_loss, hist_loss
+def fft_loss(y, y_pred):
+    fft_y = fft(y)
+    fft_y_pred = fft(y_pred)
+    
+    # Find the distance between the two vectors 
+    loss = np.linalg.norm(fft_y - fft_y_pred)
+    return loss
+
+def std_loss(y, y_pred):
+    std_true = y.std()
+    std_pred = y_pred.std()
+    return np.abs(std_true-std_pred)
+
+def max_loss(y, y_pred):
+    true_max = y.max()
+    pred_max = y_pred.max()
+    error = np.abs(true_max - pred_max)
+    return error
+
+def min_loss(y, y_pred):
+    true_min = y.min()
+    pred_min = y_pred.min()
+    error = np.abs(true_min - pred_min)
+    return error
+
+def hist_loss(y, y_pred):
+    bins = np.linspace(-0.1, 0.1, 29)
+    h, b = np.histogram(y, bins=bins)
+    h_pred, b = np.histogram(y_pred, bins=bins)
+    return np.linalg.norm(h-h_pred)
+
+
+class Optimizer(Protocol):
+    def init_config(self):
+        pass
+    def optimize(self):
+        pass
+
+ 
+class PositiveWeights:
+    def __init__(self, config, loss_weights_config=None):
+        self.config = config
+        if loss_weights_config:
+            assert len(loss_weights_config) == 5, "Need to specify: fft, std, min, max, hist"
+
+        if not loss_weights_config:
+            loss_weights_config = [1, 1, 1, 1, 1]
+
+        self.config ={
+            "fft_loss_weight":loss_weights_config[0],
+            "std_loss_weight": loss_weights_config[1],
+            "min_loss_weight":loss_weights_config[2],
+            "max_loss_weight":loss_weights_config[3], 
+            "hist_loss_weight":loss_weights_config[4],
+            "maxiter":1000,
+        }
+
+    def optimize(
+        self,
+        X_r, 
+        y_r, 
+        ):
+
+        fft_loss_weight=self.config['fft_loss_weight']
+        std_loss_weight = self.config['std_loss_weight']
+        min_loss_weight = self.config['min_loss_weight']
+        max_loss_weight = self.config['max_loss_weight']
+        hist_loss_weight = self.config['hist_loss_weight']
+        max_iter=self.config['maxiter']
+
+        N_modes, N_t = X_r.shape
+        initial_weightings = initialize_loss_weighting(X_r, y_r)
+        w_init = np.arange(N_modes)*0.1
+        constraint = get_constraint(w_init)
+        result = minimize(
+            objective_function, 
+            w_init, 
+            method='SLSQP',
+            args=(X_r, y_r, fft_loss_weight, std_loss_weight, min_loss_weight, max_loss_weight, hist_loss_weight, initial_weightings),
+            bounds = ((0, None) for i in range(N_modes)),
+            constraints=constraint,  
+            options={'maxiter': max_iter}
+            )
+        return result.x
+
 
 def initialize_loss_weighting(X_r, y_r):
     N_modes = X_r.shape[0]
@@ -94,57 +179,5 @@ def reconstruct_optimize(config: dict):
     return y[config['sample_ids'], ...], y_preds
 
 
-
-
-class Optimizer(Protocol):
-    def init_config(self):
-        pass
-    def optimize(self):
-        pass
-
-class PositiveWeights:
-    def __init__(self, loss_weights_config=None):
-        if loss_weights_config:
-            assert len(loss_weights_config) == 5, "Need to specify: fft, std, min, max, hist"
-
-        if not loss_weights_config:
-            loss_weights_config = [1, 1, 1, 1, 1]
-
-        self.config ={
-            "fft_loss_weight":loss_weights_config[0],
-            "std_loss_weight": loss_weights_config[1],
-            "min_loss_weight":loss_weights_config[2],
-            "max_loss_weight":loss_weights_config[3], 
-            "hist_loss_weight":loss_weights_config[4],
-            "maxiter":1000,
-        }
-
-    def optimize(
-        self,
-        X_r, 
-        y_r, 
-        ):
-
-        fft_loss_weight=self.config['fft_loss_weight']
-        std_loss_weight = self.config['std_loss_weight']
-        min_loss_weight = self.config['min_loss_weight']
-        max_loss_weight = self.config['max_loss_weight']
-        hist_loss_weight = self.config['hist_loss_weight']
-        max_iter=self.config['maxiter']
-
-        N_modes, N_t = X_r.shape
-        initial_weightings = initialize_loss_weighting(X_r, y_r)
-        w_init = np.arange(N_modes)*0.1
-        constraint = get_constraint(w_init)
-        result = minimize(
-            objective_function, 
-            w_init, 
-            method='SLSQP',
-            args=(X_r, y_r, fft_loss_weight, std_loss_weight, min_loss_weight, max_loss_weight, hist_loss_weight, initial_weightings),
-            bounds = ((0, None) for i in range(N_modes)),
-            constraints=constraint,  
-            options={'maxiter': max_iter}
-            )
-        return result.x
 
 

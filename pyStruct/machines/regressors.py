@@ -19,7 +19,9 @@ import scipy.stats as stats
 from theano import shared
 from sklearn.preprocessing import StandardScaler
 
-from pyStruct.machines.validation import VisualizeOptimization
+
+
+
 def plot_regression_deviance(reg, params, X_test_norm, y_test):
     test_score = np.zeros((params["n_estimators"],), dtype=np.float64)
     for i, y_pred in enumerate(reg.staged_predict(X_test_norm)):
@@ -89,9 +91,9 @@ def plot_weights_accuracy_scatter(reg, X_train_norm, y_train, X_test_norm, y_tes
 
 def gb_regression(params, X_train, y_train, X_test, y_test, feature_names, show=False):
     # Normalize the features 
-    norm = MinMaxScaler().fit(X_train)
-    X_train_norm = norm.transform(X_train)
-    X_test_norm = norm.transform(X_test)
+    norm = MinMaxScaler().fit(X_train.to_numpy())
+    X_train_norm = norm.transform(X_train.to_numpy())
+    X_test_norm = norm.transform(X_test.to_numpy())
 
 
     reg = ensemble.GradientBoostingRegressor(**params)
@@ -175,9 +177,9 @@ class GbRegressor:
                 ['w'])
 
 
-            norm = MinMaxScaler().fit(X_train)
-            X_train_norm = norm.transform(X_train)
-            X_test_norm = norm.transform(X_test)
+            norm = MinMaxScaler().fit(X_train.to_numpy())
+            X_train_norm = norm.transform(X_train.to_numpy())
+            X_test_norm = norm.transform(X_test.to_numpy())
 
 
             reg = ensemble.GradientBoostingRegressor(**self.params)
@@ -194,7 +196,7 @@ class GbRegressor:
                 plot_weights_accuracy_scatter(reg, X_train_norm, y_train, X_test_norm, y_test)
         return feature_table
 
-    def predict(self, features):
+    def predict(self, features: np.ndarray):
         assert hasattr(self, 'regs'), "No regressors exist. Train or Read first"
         assert features.shape == (self.config['N_modes'], len(self.config['y_labels']))
             
