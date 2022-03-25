@@ -58,7 +58,7 @@ class TwoMachineFramework:
             self.structure_predictor.load(self.feature_table)
 
     
-    def predict(self, inputs: dict):
+    def predict(self, inputs: dict, perturb_structure:bool = False):
         assert list(inputs.keys())  == self.config['x_labels']
 
         # Retrieve base X: 
@@ -66,7 +66,7 @@ class TwoMachineFramework:
 
 
         # Predict structures
-        X_compose, features  = self.structure_predictor.predict_and_compose(inputs, X)
+        X_compose, features  = self.structure_predictor.predict_and_compose(inputs, X, perturb_structure)
 
         # Predict weights
         weights = self.weights_predictor.predict(features)
@@ -76,13 +76,13 @@ class TwoMachineFramework:
             [X_compose[mode, :] * weights[mode] for mode in range(self.config['N_modes']) ] ).sum(axis=0)
         return y_pred
 
-    def sampling(self, inputs: dict, N_family=100, N_realizations=100):
+    def sampling(self, inputs: dict, N_family=100, N_realizations=100, perturb_structure=False):
         # Retrieve base X: 
         X, _ = self.feature_processor.get_training_pairs()
 
 
         # Predict structures
-        X_compose, features  = self.structure_predictor.predict_and_compose(inputs, X)
+        X_compose, features  = self.structure_predictor.predict_and_compose(inputs, X, perturb_structure)
 
         # Predict weights
         weights_samples = self.weights_predictor.sampling(features, N_realizations)

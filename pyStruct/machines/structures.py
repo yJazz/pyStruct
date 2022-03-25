@@ -74,7 +74,6 @@ class LookupStructure:
 
         targets = feature_table[self.config['y_labels']].to_numpy()
 
-
         for mode in range(self.config['N_modes']):
             print(f'train structure predictor mode {mode}')
             x = features_x[feature_table['mode'] == mode, :]
@@ -94,13 +93,55 @@ class LookupStructure:
             self.models, self.norm = pickle.load(f)
         return
 
-
     def _create_model_and_fit(self, X, y):
         model = MultiOutputRegressor(ensemble.GradientBoostingRegressor(**self.params))
         model.fit(X, y)
         return model
 
-    def predict(self, inputs: dict):
+    def predict_and_compose(self, inputs: dict, X_base: np.ndarray, perturb_structure:bool=False):
+        """ With the given inputs, give out the possible modes,
+            and compose new temporal bases X_compose
+
+        Parameters
+        ----------
+        inputs:  boundary conditions. The keys should be the same as self.config['x_labels']
+        X_base: {array-like, with the shape (N_libarary_samples, N_libarary_modes)}
+        perturb_structure: if True, do random sampling of structures based on its probability
+
+        Returns
+        -------
+        X_compose: {array-like, with shape (self.config['N_modes'], self.config['N_t'])}
+        predicted_features: {array-like, with shape (self.config['N_modes'], self.config['y_labels'])}, 
+                            the features to be fed into the next machine
+
+        """
+        X_compose = np.zeros(X_base.shape[1:])
+
+        if perturb_structure:
+            predicted_df = self._unc_predict(inputs)
+        else:
+            predicted_df = self._predict(inputs)
+        predicted_features = predicted_df[self.config['y_labels']].to_numpy()
+        print(f" Predicted features shape = {predicted_features.shape}")
+
+        # Compose predicted bases
+        for i in predicted_df.index:
+            sample = predicted_df.loc[i, 'sample']
+            mode = predicted_df.loc[i, 'mode']
+            X_compose[mode, :] = X_base[sample, mode, :]
+        return X_compose, predicted_features
+
+    def _predict(self, inputs: dict) -> pd.DataFrame:
+        """ Given the inputs, deterministically predict the modes' feature table
+
+        Parameters
+        ----------
+        inputs: {dict}, the keys should be the same as self.config['x_labels']
+
+        Returns
+        -------
+        predicted_modes_features_as_table: {pd.DataFrame} of lenth: self.config['N_modes]
+        """
         input_df = pd.DataFrame(inputs, index=[0])
         x = self.norm.transform(input_df)
         
@@ -109,29 +150,84 @@ class LookupStructure:
             model = self.models[mode]
             y_label = self.feature_table[self.feature_table['mode']== mode][self.config['y_labels']]
             y_label_pred = model.predict(x)
-            id = self._compare_distance_and_return_id(y_label_pred, y_label)
+            d = self._compare_distance(y_label_pred, y_label)
+            id = y_label.index[d.argmin()]
             idx.append(id)
-        return self.feature_table.iloc[idx]
+        predicted_modes_features_as_table = self.feature_table.iloc[idx]
+        return predicted_modes_features_as_table
+
+    def _unc_predict(self, inputs: dict):
+        """ Given the inputs, PROBABILISTICALLY predict the modes' feature table
+
+        Parameters
+        ----------
+        inputs: {dict}, the keys should be the same as self.config['x_labels']
+
+        Returns
+        -------
+        predicted_modes_features_as_table: {pd.DataFrame} of lenth: self.config['N_modes]
+        """ 
+        modified_table = pd.DataFrame(self.feature_table)
+
+        input_df = pd.DataFrame(inputs, index=[0])
+        x = self.norm.transform(input_df)
+        idx = []
+
+        for mode in range(self.config['N_modes']):
+            # y_label = self.feature_table[self.feature_table['mode']== mode][self.config['y_labels']]
+
+            y_label = modified_table[modified_table['mode']== mode][self.config['y_labels']]
+
+            # Get prediction
+            model = self.models[mode]
+            y_label_pred = model.predict(x)
+            
+            # modify table
+            d = self._compare_distance(y_label_pred, y_label)
+            prob = 1/d / sum(1/d)
+            id_candidates = y_label.index
+
+            # Sample those probability
+            random_choice = np.random.choice(a=id_candidates, p=prob)
+            idx.append(random_choice)
+            modified_table.iloc[random_choice][self.config['y_labels']] = y_label_pred
+        
+        return modified_table.iloc[idx]
+    def get_library_probability(self, inputs:dict, N_lib_samples: int, N_lib_modes: int, show=True):
+        probs = np.zeros((N_lib_samples, N_lib_modes))
+        for mode in range(self.config['N_modes']):
+            probs[:, mode] = self._compute_prob_of_mode(inputs, mode)
+        
+        if show:
+            fig, ax = plt.subplots(figsize=(8,4)) 
+            sns.heatmap(probs, cmap='RdPu', vmin=0, vmax=1)
+            plt.xlabel("Tempoeral Mode")
+            plt.ylabel("Training ID")
+            plt.show()
+        return probs
+    
+    def _compare_distance(self, y_pred: np.ndarray, y_label: np.ndarray):
+        """ The y_pred: shape (1, N_ylabels) """
+        assert y_pred.shape == (1, len(self.config['y_labels']))
+        return np.linalg.norm( y_label - y_pred, axis=1)
             
     def _compare_distance_and_return_id(self, y_pred: np.ndarray, y_label: np.ndarray):
         """ The y_pred: shape (1, N_ylabels) """
-        assert y_pred.shape == (1, len(self.config['y_labels']))
-
-        distance = np.linalg.norm( y_label - y_pred, axis=1)
+        distance = self._compare_distance(y_pred, y_label)
         id = distance.argmin() 
         return y_label.index[id]
 
-    def predict_and_compose(self, inputs: dict, X_base: np.ndarray):
-        """ With the given inputs, give out the possible modes,
-            and compose new temporal bases X_compose
-        """
-        predicted_df = self.predict(inputs)
+    def _compute_prob_of_mode(self, inputs, mode):
+        input_df = pd.DataFrame(inputs, index=[0])
+        x = self.norm.transform(input_df)
+        y_label = self.feature_table[self.feature_table['mode']== mode][self.config['y_labels']]
 
-        # Compose predicted bases
-        X_compose = np.zeros(X_base.shape[1:])
-
-        for i in predicted_df.index:
-            sample = predicted_df.loc[i, 'sample']
-            mode = predicted_df.loc[i, 'mode']
-            X_compose[mode, :] = X_base[sample, mode, :]
-        return X_compose, predicted_df[self.config['y_labels']].to_numpy()
+        # Get prediction
+        model = self.models[mode]
+        y_label_pred = model.predict(x)
+        
+        # modify table
+        d = self._compare_distance(y_label_pred, y_label)
+        prob = 1/d / sum(1/d)
+        return prob 
+            
