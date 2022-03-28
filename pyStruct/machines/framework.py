@@ -60,7 +60,7 @@ class TwoMachineFramework:
             self.structure_predictor.load(self.feature_table)
 
     
-    def predict(self, inputs: dict, perturb_structure:bool = False, perturb_weights=False):
+    def predict(self, inputs: dict, perturb_structure:bool = False, perturb_weights=False, weights = None):
         assert list(inputs.keys())  == self.config['x_labels']
 
         # Retrieve base X: 
@@ -70,53 +70,87 @@ class TwoMachineFramework:
         X_compose, features  = self.structure_predictor.predict_and_compose(inputs, X, perturb_structure)
 
         # Predict weights
-        if perturb_weights:
-            weights = self.weights_predictor.sampling(features, N_realizations=1)
-        else:
-            weights = self.weights_predictor.predict(features)
+        if not weights:
+            if perturb_weights:
+                weights = self.weights_predictor.sampling(features, N_realizations=1)
+            else:
+                weights = self.weights_predictor.predict(features)       
+        print(weights)
         
-        print(f'weights: {weights}')
+        y_pred = self._reconstruct(X_compose, weights)
+        return y_pred
 
+    def _reconstruct(self, X, weights):
         # Output
         y_pred = np.array(
-            [X_compose[mode, :] * weights[mode] for mode in range(self.config['N_modes']) ] ).sum(axis=0)
+            [X[mode, :] * weights[mode] for mode in range(self.config['N_modes']) ] ).sum(axis=0)
+        return y_pred
 
-        if perturb_weights:
-            return y_pred[0]
-        else:
-            return y_pred
-    
-    def validation(self, plot=True):
+    def prediction_validation(self):
         """ Visualize the training samples """
         # Get reference data
         X, y_trues = self.feature_processor.get_training_pairs()
-
         y_preds = []
 
         # Get boundary conditions
         feature_table = self.feature_table
-        for sample in range(self.config['N_samples']):
-            f = feature_table[feature_table['sample'] == sample]
+        # for sample in range(self.config['N_samples']):
+        ncols=5
+        nrows = int(np.ceil(self.config['N_samples']/ncols))
+        figsize = (ncols*3.2, nrows*3)
+        fig, axes = plt.subplots(nrows, ncols, figsize=figsize)
+        for sample in range(20):
+            ax = axes[sample//ncols, sample%ncols]
+            # Optimize
+            feature_by_sample = self.feature_table[self.feature_table['sample']==sample]
+            feature_by_sample = feature_by_sample.sort_values(by='rank')
+            weights = feature_by_sample['w'].values
+            y_optm = self._reconstruct(X[sample, ...], weights)
 
+            # Predict
+            f = feature_table[feature_table['sample'] == sample]
             input = {x_label: f[x_label].values[0] for x_label in self.config['x_labels']}
             y_pred = self.predict(input)
             y_preds.append(y_pred)
 
-        if plot:
-            ncols=5
-            nrows = int(np.ceil(self.config['N_samples']/ncols))
-            figsize = (ncols*3.2, nrows*3)
-            fig, axes = plt.subplots(nrows, ncols, figsize=figsize)
-            for sample in range(self.config['N_samples']):
-                ax = axes[sample//ncols, sample%ncols]
-                ax.plot(y_trues[sample, :], label='True')
-                ax.plot(y_preds[sample], label='Pred')
+            # Plot
+            ax = axes[sample//ncols, sample%ncols]
+            ax.plot(y_trues[sample, :], label='True')
+            ax.plot(y_optm, label = 'Optm')
+            ax.plot(y_preds[sample], label='Pred')
 
-            ax.legend(bbox_to_anchor=(1.1, 0))
-            plt.tight_layout()
-            plt.savefig(self.save_to/'validation.png')
-            plt.show()
+        plt.legend(bbox_to_anchor=(0, 1.1))
+        plt.tight_layout()
+        plt.savefig(self.save_to/'validation.png')
+        plt.show()
         return y_trues, y_preds
+
+    def optimization_validation(self):
+        X, y_trues = self.feature_processor.get_training_pairs()
+        
+        ncols = 5
+        nrows = int(np.ceil(self.config['N_samples']/ncols))
+        figsize = (ncols*3.2, nrows*3)
+        fig, axes = plt.subplots(nrows, ncols, figsize=figsize)
+
+        for sample in range(self.config['N_samples']):
+            feature_by_sample = self.feature_table[self.feature_table['sample']==sample]
+            feature_by_sample = feature_by_sample.sort_values(by='rank')
+            input = {x_label: feature_by_sample[x_label].values[0] for x_label in self.config['x_labels']}
+            y_pred = self.predict(input)
+
+            ax = axes[sample//ncols, sample%ncols]
+            ax.plot(y_trues[sample, :], label='True')
+            
+            # optimization
+            weights = feature_by_sample['w'].values
+            y_optm = self._reconstruct(X[sample, ...], weights)
+            ax.plot(y_optm, label='Optm')
+
+        plt.legend(bbox_to_anchor=(0, 1.1))
+        plt.tight_layout()
+        plt.savefig(self.save_to/'optimization.png')
+        plt.show()
 
     def _optimize(self):
         # Retrieve data
@@ -128,6 +162,7 @@ class TwoMachineFramework:
         # Run optimization and Create table 
         for sample in range(self.config['N_samples']):
             feature_by_sample = self.feature_table[self.feature_table['sample']==sample]
+            feature_by_sample = feature_by_sample.sort_values(by='rank')
             id = feature_by_sample.index
 
             print(f"Optimizing case {sample}")

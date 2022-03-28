@@ -32,6 +32,7 @@ class CoherentStrength:
         self.pods = ModesManager(name='', workspace=config['workspace'], to_folder=None)
         # self.features = ['sample', 'mode', 'theta_deg', 'singualr', 'probe_strength']
         self.feature_table = self._create_feature_table(config['theta_deg'])
+        self._rank_the_modes_by_strength()
     
     def _create_feature_table(self, theta_deg):
         # Read statepoint
@@ -60,6 +61,7 @@ class CoherentStrength:
         Tc_flat = [bcs[bcs['sample']==sample]['T_c'].iloc[0] for sample in range(N_sample) for mode in range(N_mode)]
         Th_flat = [bcs[bcs['sample']==sample]['T_h'].iloc[0] for sample in range(N_sample) for mode in range(N_mode)]
 
+
         return pd.DataFrame({
             'sample': [sample for sample in range(N_sample) for mode in range(N_mode)],
             'mode': [mode for sample in range(N_sample) for mode in range(N_mode)],
@@ -71,9 +73,22 @@ class CoherentStrength:
             'singular': singulars_flat,
             'probe_strength': probe_strength_flat
             })
+
+    def _rank_the_modes_by_strength(self):
+        self.feature_table['rank'] = np.zeros(len(self.feature_table))
+        _, useful_modes_idx = self.get_X()
+
+        for sample in range(self.pods.N_samples):
+            feature_by_sample = self.feature_table[self.feature_table['sample'] == sample]
+            sorted_feature = feature_by_sample.sort_values(by=['probe_strength'], ascending=True)
+            ids = sorted_feature.index
+            for rank, id in enumerate(ids):
+                self.feature_table.loc[id, 'rank'] = rank
+        return
             
     def get_bcs(self):
         return self.pods.bcs
+
     def get_training_pairs(self):
         X, _ = self.get_X()
         y = self.get_y()
@@ -85,13 +100,20 @@ class CoherentStrength:
         X = np.zeros((self.pods.N_samples, self.config['N_modes'], self.pods.N_t))
         useful_modes_idx = []
 
+
         for sample in range(self.pods.N_samples):
-            sorted_features_per_sample = self.feature_table[self.feature_table['sample']==sample].sort_values(by=['probe_strength'], ascending=False)
+            # Filter the sample
+            feature_per_sample = self.feature_table[self.feature_table['sample'] == sample]
+            ids = feature_per_sample.index
+
+            # Sort the dataframe by the strength
+            sorted_features_per_sample = feature_per_sample.sort_values(by=['probe_strength'], ascending=False)
             args = sorted_features_per_sample['mode'].values
             cs = sorted_features_per_sample['probe_strength'].values
             for mode, arg in enumerate(args[:self.config['N_modes']]):
                 X[sample, mode, :] = X_temporals[sample, arg, :] * cs[arg] *10
             useful_modes_idx.append(args)
+
         return X, useful_modes_idx
         
     def get_y(self):

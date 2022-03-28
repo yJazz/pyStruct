@@ -45,6 +45,49 @@ class Optimizer(Protocol):
     def optimize(self):
         pass
 
+class AllWeights:
+    def __init__(self, config, loss_weights_config=None):
+        self.config = config
+        if loss_weights_config:
+            assert len(loss_weights_config) == 5, "Need to specify: fft, std, min, max, hist"
+
+        if not loss_weights_config:
+            loss_weights_config = [1, 1, 1, 1, 1]
+
+        self.config ={
+            "fft_loss_weight":loss_weights_config[0],
+            "std_loss_weight": loss_weights_config[1],
+            "min_loss_weight":loss_weights_config[2],
+            "max_loss_weight":loss_weights_config[3], 
+            "hist_loss_weight":loss_weights_config[4],
+            "maxiter":1000,
+        }
+
+    def optimize(
+        self,
+        X_r, 
+        y_r, 
+        ):
+
+        fft_loss_weight=self.config['fft_loss_weight']
+        std_loss_weight = self.config['std_loss_weight']
+        min_loss_weight = self.config['min_loss_weight']
+        max_loss_weight = self.config['max_loss_weight']
+        hist_loss_weight = self.config['hist_loss_weight']
+        max_iter=self.config['maxiter']
+
+        N_modes, N_t = X_r.shape
+        initial_weightings = initialize_loss_weighting(X_r, y_r)
+        w_init = np.arange(N_modes)*0.1
+        constraint = get_constraint(w_init)
+        result = minimize(
+            objective_function, 
+            w_init, 
+            args=(X_r, y_r, fft_loss_weight, std_loss_weight, min_loss_weight, max_loss_weight, hist_loss_weight, initial_weightings),
+            constraints=constraint,  
+            options={'maxiter': max_iter}
+            )
+        return result.x
  
 class PositiveWeights:
     def __init__(self, config, loss_weights_config=None):

@@ -260,7 +260,7 @@ class BayesianModel:
             mu = a
             for i, var_name in enumerate(self.var_names):
                 b_i = pm.Normal(var_name, mu = -1.1, sd= 5 )
-                mu = a + b_i * self.inputs_shared[var_name]
+                mu += b_i * self.inputs_shared[var_name]
             w = pm.Normal( "w", mu=mu, sigma=eps, observed=self.target)
         self.model = model
         return
@@ -370,3 +370,74 @@ class BayesianModel:
         print(weights[sample])
         
         return
+
+
+class MultiLevelBayesian(BayesianModel):
+    def __init__(self, config: dict):
+        super(MultiLevelBayesian, self).__init__(config)
+        self.save_folder = Path(config['save_to'])/f"multibayesian_model"
+        self.save_folder.mkdir(parents=True, exist_ok=True)
+        self.save_as = self.save_folder/"idata.nc"
+
+    def _init_data(self, feature_table):
+        # get data
+        self.feature_table = feature_table
+        self.modes = feature_table['mode'].values
+        self.target = self.feature_table[self.target_name].values
+        self.inputs = {}
+        self.inputs_shared={}
+        self.standrdizers = {}
+        for var_name in self.var_names:
+            input, standrdizer = self.transform_input(var_name)
+            self.inputs_shared[var_name] = shared(input) # the shared tensor, which can be modified later
+            self.standrdizers[var_name] = standrdizer
+            self.inputs[var_name] = input # this won't change
+        
+    
+    def build_model(self):
+        """ Multi-level model; split by the mode """
+        with pm.Model() as model:
+            # Hyperpriors for group nodes
+            mu_a = pm.Normal("mu_a", mu=1, sigma=5)
+            sigma_a = pm.HalfNormal("sigma_a", 5)
+            mu_b = pm.Normal("mu_b", mu=-1, sigma=5)
+            sigma_b = pm.HalfNormal("sigma_b", 5)
+
+            # Transformed:
+            a_offset = pm.Normal('a_offset', mu=0, sd=1, shape=20)
+            a = pm.Deterministic("a", mu_a + a_offset * sigma_a)
+            b_offset = pm.Normal('b_offset', mu=0, sd=1, shape=20)
+            b = pm.Deterministic("b", mu_b + b_offset * sigma_b)
+            
+            eps = pm.HalfCauchy("eps", 4)
+            mu = a[self.modes] + b[self.modes] * self.inputs_shared['singular']
+            w = pm.Normal( "w", mu=mu, sigma=eps, observed=self.target)
+        self.model = model
+        return
+
+    def predict(self, features: np.ndarray):
+        assert features.shape == (self.config['N_modes'], len(self.config['y_labels']))
+
+        # Get the mean value
+        weights =[]
+        for mode in range(self.config['N_modes']):
+            a = self.df.loc[f'a[{mode}]', 'mean']
+            b = self.df.loc[f'b[{mode}]', 'mean']
+            w_preds = a + b * self.standrdizers['singular'].transform(features[mode].reshape(-1, 1))
+            
+            weights.append(w_preds[0])
+        return weights
+
+    def sampling(self, features, N_realizations=100):
+        # Get the mean value
+        sigma = self.df.loc['eps', 'mean']
+        weights_samples = np.zeros((self.config['N_modes'], N_realizations ))
+        for mode in range(self.config['N_modes']):
+            a = self.df.loc[f'a[{mode}]', 'mean']
+            b = self.df.loc[f'b[{mode}]', 'mean']
+            mu = a + b * self.standrdizers['singular'].transform(features[mode].reshape(-1, 1))
+
+            w_preds = norm.rvs(loc=mu, scale=sigma, size=(1,N_realizations))
+            # weights_samples.append(w_preds)
+            weights_samples[mode, :] = w_preds.flatten()
+        return weights_samples
