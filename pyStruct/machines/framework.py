@@ -115,7 +115,7 @@ class TwoMachineFramework:
 
             # Plot
             ax = axes[sample//ncols, sample%ncols]
-            ax.plot(y_trues[sample, :], label='True')
+            # ax.plot(y_trues[sample, :], label='True')
             ax.plot(y_optm, label = 'Optm')
             ax.plot(y_preds[sample], label='Pred')
 

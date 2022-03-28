@@ -79,15 +79,25 @@ class AllWeights:
         N_modes, N_t = X_r.shape
         initial_weightings = initialize_loss_weighting(X_r, y_r)
         w_init = np.arange(N_modes)*0.1
-        constraint = get_constraint(w_init)
+        constraint = self.get_constraint(N_modes)
+        bounds = [(-1, 1) for i in range(N_modes)]
         result = minimize(
             objective_function, 
             w_init, 
+            method='SLSQP',
             args=(X_r, y_r, fft_loss_weight, std_loss_weight, min_loss_weight, max_loss_weight, hist_loss_weight, initial_weightings),
             constraints=constraint,  
+            bounds=bounds,
             options={'maxiter': max_iter}
             )
         return result.x
+        
+    def get_constraint(self, N_modes):
+        cons = []
+        for i in range(N_modes-1):
+            con = lambda x: abs(x[i+1]) - abs(x[i])
+            cons.append({'type': 'ineq', 'fun': con})
+        return cons 
  
 class PositiveWeights:
     def __init__(self, config, loss_weights_config=None):
