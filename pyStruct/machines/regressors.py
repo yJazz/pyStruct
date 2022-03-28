@@ -278,6 +278,7 @@ class BayesianModel:
             # step = pm.NUTS(target_accept=0.95)
             idata = pm.sample(samples, tune=1000, return_inferencedata=True, chains=1)
         self.idata = idata
+        self.df = az.summary(idata)
         idata.to_netcdf(self.save_as)
         with open(self.save_folder / "standardizer.pkl", 'wb') as f:
             pickle.dump(self.standrdizers, f)
@@ -288,6 +289,7 @@ class BayesianModel:
         self._init_data(feature_table)
         self.build_model()
         self.idata = az.from_netcdf(self.save_folder/"idata.nc")
+        self.df = az.summary(self.idata)
         with open(self.save_folder / "standardizer.pkl", 'rb') as f:
             self.standrdizers = pickle.load(f)
         return
@@ -296,34 +298,32 @@ class BayesianModel:
         assert features.shape == (self.config['N_modes'], len(self.config['y_labels']))
         # features = features.to_numpy()
 
-        df = az.summary(self.idata)
-
         # Get the mean value
-        a = df.loc['a', 'mean']
+        a = self.df.loc['a', 'mean']
         weights =[]
         for mode in range(self.config['N_modes']):
             w_preds = a
             for i, var_name in enumerate(self.var_names):
-                b_i = df.loc[var_name, 'mean']
+                b_i = self.df.loc[var_name, 'mean']
                 w_preds += b_i*self.standrdizers[var_name].transform(features[mode, i].reshape(-1, 1))
             
             weights.append(w_preds[0])
         return weights
     def sampling(self, features, N_realizations=100):
-        df = az.summary(self.idata)
 
         # Get the mean value
-        sigma = df.loc['eps', 'mean']
-        a = df.loc['a', 'mean']
-        weights_samples =[]
+        sigma = self.df.loc['eps', 'mean']
+        a = self.df.loc['a', 'mean']
+        weights_samples = np.zeros((self.config['N_modes'], N_realizations ))
         for mode in range(self.config['N_modes']):
             mu = a
             for i, var_name in enumerate(self.var_names):
-                b_i = df.loc[var_name, 'mean']
+                b_i = self.df.loc[var_name, 'mean']
                 mu += b_i*self.standrdizers[var_name].transform(features[mode, i].reshape(-1, 1))
 
             w_preds = norm.rvs(loc=mu, scale=sigma, size=(1,N_realizations))
-            weights_samples.append(w_preds)
+            # weights_samples.append(w_preds)
+            weights_samples[mode, :] = w_preds.flatten()
         return weights_samples
 
     def counterfactual_plot(self, x, cvar_name, N_samples=100):

@@ -4,7 +4,6 @@ from scipy.fft import fft, fftfreq
 from typing import Protocol
 
 from pyStruct.data.dataset import ModesManager
-from pyStruct.machines.structures import LookupStructure
 
 
 class FeatureProcessor(Protocol):
@@ -73,6 +72,8 @@ class CoherentStrength:
             'probe_strength': probe_strength_flat
             })
             
+    def get_bcs(self):
+        return self.pods.bcs
     def get_training_pairs(self):
         X, _ = self.get_X()
         y = self.get_y()

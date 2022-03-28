@@ -3,6 +3,7 @@ import json
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from tqdm import tqdm
 
 
 class TwoMachineFramework:
@@ -27,6 +28,7 @@ class TwoMachineFramework:
 
         # save the config
         self.save_to = Path(self.config['save_to'])
+        self.save_to.mkdir(parents=True, exist_ok=True)
         config_file = self.save_to/'config.json'
         with open(config_file, 'w') as f:
             json.dump(self.config, f)
@@ -58,42 +60,31 @@ class TwoMachineFramework:
             self.structure_predictor.load(self.feature_table)
 
     
-    def predict(self, inputs: dict, perturb_structure:bool = False):
+    def predict(self, inputs: dict, perturb_structure:bool = False, perturb_weights=False):
         assert list(inputs.keys())  == self.config['x_labels']
 
         # Retrieve base X: 
         X, _ = self.feature_processor.get_training_pairs()
 
-
         # Predict structures
         X_compose, features  = self.structure_predictor.predict_and_compose(inputs, X, perturb_structure)
 
         # Predict weights
-        weights = self.weights_predictor.predict(features)
+        if perturb_weights:
+            weights = self.weights_predictor.sampling(features, N_realizations=1)
+        else:
+            weights = self.weights_predictor.predict(features)
+        
+        print(f'weights: {weights}')
 
         # Output
         y_pred = np.array(
             [X_compose[mode, :] * weights[mode] for mode in range(self.config['N_modes']) ] ).sum(axis=0)
-        return y_pred
 
-    def sampling(self, inputs: dict, N_family=100, N_realizations=100, perturb_structure=False):
-        # Retrieve base X: 
-        X, _ = self.feature_processor.get_training_pairs()
-
-
-        # Predict structures
-        X_compose, features  = self.structure_predictor.predict_and_compose(inputs, X, perturb_structure)
-
-        # Predict weights
-        weights_samples = self.weights_predictor.sampling(features, N_realizations)
-        # Output
-        y_preds = np.zeros((self.config['N_t'], N_realizations))
-        for i in range(N_realizations):
-            y_pred = np.array(
-                [X_compose[mode, :] * weights_samples[mode][0, i] for mode in range(self.config['N_modes']) ] ).sum(axis=0)
-            y_preds[:, i] = y_pred
-        return y_preds
-
+        if perturb_weights:
+            return y_pred[0]
+        else:
+            return y_pred
     
     def validation(self, plot=True):
         """ Visualize the training samples """
