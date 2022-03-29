@@ -173,8 +173,8 @@ class GbRegressor:
     def train(self, feature_table, show=False):
         self.regs = []
         self.norms = []
-        for mode in range(self.config['N_modes']):
-            f = feature_table[feature_table['mode'] == mode]
+        for rank in range(self.config['N_modes']):
+            f = feature_table[feature_table['rank'] == rank]
             X_train, y_train, X_test, y_test = wp_split_train_test(
                 f,
                 self.config['training_id'],
@@ -216,13 +216,14 @@ class GbRegressor:
         assert hasattr(self, 'regs'), "No regressors exist. Train or Read first"
         assert features.shape == (self.config['N_modes'], len(self.config['y_labels']))
             
-        weights=[]
+        weights=np.zeros(self.config['N_modes'], dtype=np.float)
         for mode in range(self.config['N_modes']):
             reg = self.regs[mode]
             norm = self.norms[mode]
             # normalize the feature
             normalized_feature_mode = norm.transform(features)[mode, :]
-            weights.append(reg.predict(normalized_feature_mode.reshape(1,len(self.config['y_labels']))))
+            weights[mode] = reg.predict(normalized_feature_mode.reshape(1,len(self.config['y_labels'])))
+            # weights.append(reg.predict(normalized_feature_mode.reshape(1,len(self.config['y_labels']))))
         return weights
 
     

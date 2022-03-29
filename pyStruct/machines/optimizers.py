@@ -52,7 +52,7 @@ class AllWeights:
             assert len(loss_weights_config) == 5, "Need to specify: fft, std, min, max, hist"
 
         if not loss_weights_config:
-            loss_weights_config = [1, 1, 1, 1, 1]
+            loss_weights_config = [10, 1, 1, 1, 1]
 
         self.config ={
             "fft_loss_weight":loss_weights_config[0],
@@ -79,25 +79,28 @@ class AllWeights:
         N_modes, N_t = X_r.shape
         initial_weightings = initialize_loss_weighting(X_r, y_r)
         w_init = np.arange(N_modes)*0.1
-        constraint = self.get_constraint(N_modes)
+        # constraint = self.get_constraint(N_modes)
+        constraint = self.get_constraint(w_init)
         bounds = [(-1, 1) for i in range(N_modes)]
         result = minimize(
             objective_function, 
             w_init, 
             method='SLSQP',
             args=(X_r, y_r, fft_loss_weight, std_loss_weight, min_loss_weight, max_loss_weight, hist_loss_weight, initial_weightings),
-            constraints=constraint,  
+            # constraints=constraint,  
             bounds=bounds,
             options={'maxiter': max_iter}
             )
         return result.x
         
-    def get_constraint(self, N_modes):
-        cons = []
-        for i in range(N_modes-1):
-            con = lambda x: abs(x[i+1]) - abs(x[i])
-            cons.append({'type': 'ineq', 'fun': con})
-        return cons 
+    # def get_constraint(self, N_modes):
+    #     cons = []
+    #     for i in range(N_modes-1):
+    #         con = lambda x: abs(x[i+1]) - abs(x[i])
+    #         cons.append({'type': 'ineq', 'fun': con})
+    #     return cons 
+    def get_constraint(self, x):
+        return tuple([{'type':'ineq', 'fun': lambda x,i=i: abs(x[i]) - abs(x[i+1])} for i in range(len(x)-1)] )
  
 class PositiveWeights:
     def __init__(self, config, loss_weights_config=None):
@@ -106,7 +109,7 @@ class PositiveWeights:
             assert len(loss_weights_config) == 5, "Need to specify: fft, std, min, max, hist"
 
         if not loss_weights_config:
-            loss_weights_config = [1, 1, 1, 1, 1]
+            loss_weights_config = [10, 1, 1, 1, 1]
 
         self.config ={
             "fft_loss_weight":loss_weights_config[0],
@@ -116,6 +119,8 @@ class PositiveWeights:
             "hist_loss_weight":loss_weights_config[4],
             "maxiter":1000,
         }
+    def get_constraint(self, x):
+        return tuple([{'type':'ineq', 'fun': lambda x,i=i: x[i] - x[i+1]} for i in range(len(x)-1)] )
 
     def optimize(
         self,
@@ -132,15 +137,15 @@ class PositiveWeights:
 
         N_modes, N_t = X_r.shape
         initial_weightings = initialize_loss_weighting(X_r, y_r)
-        w_init = np.arange(N_modes)*0.1
-        constraint = get_constraint(w_init)
+        w_init = np.arange(N_modes)[::-1]*0.1
+        constraint = self.get_constraint(w_init)
         result = minimize(
             objective_function, 
             w_init, 
             method='SLSQP',
             args=(X_r, y_r, fft_loss_weight, std_loss_weight, min_loss_weight, max_loss_weight, hist_loss_weight, initial_weightings),
-            bounds = ((0, None) for i in range(N_modes)),
-            constraints=constraint,  
+            bounds = ((0, 1) for i in range(N_modes)),
+            constraints=constraint, 
             options={'maxiter': max_iter}
             )
         return result.x

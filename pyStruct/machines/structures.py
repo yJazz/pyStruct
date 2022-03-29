@@ -133,8 +133,8 @@ class GBLookupStructure:
         # Compose predicted bases
         for i in predicted_df.index:
             sample = predicted_df.loc[i, 'sample']
-            mode = predicted_df.loc[i, 'mode']
-            X_compose[mode, :] = X_base[sample, mode, :]
+            ranked_mode = int(predicted_df.loc[i, 'rank'])
+            X_compose[ranked_mode, :] = X_base[sample, ranked_mode, :]
         return X_compose, predicted_features
 
     def _predict(self, inputs: dict) -> pd.DataFrame:
@@ -159,8 +159,8 @@ class GBLookupStructure:
             d = self._compare_distance(y_label_pred, y_label)
             id = y_label.index[d.argmin()]
             idx.append(id)
-        predicted_modes_features_as_table = self.feature_table.iloc[idx]
-        return predicted_modes_features_as_table
+        ranked_modes_features_as_table = self.feature_table.iloc[idx].sort_values(by=['rank'])
+        return ranked_modes_features_as_table
 
     def _unc_predict(self, inputs: dict):
         """ Given the inputs, PROBABILISTICALLY predict the modes' feature table
@@ -196,8 +196,10 @@ class GBLookupStructure:
             random_choice = np.random.choice(a=id_candidates, p=prob)
             idx.append(random_choice)
             modified_table.loc[random_choice, self.config['y_labels']] = y_label_pred.flatten()
+        
+        ranked_modes_features_as_table = modified_table.iloc[idx].sort_values(by=['rank'])
             
-        return modified_table.iloc[idx]
+        return ranked_modes_features_as_table
 
     def get_library_probability(self, inputs:dict, N_lib_samples: int, N_lib_modes: int, show=True):
         """
