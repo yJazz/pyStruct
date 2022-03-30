@@ -8,6 +8,7 @@ from sklearn.metrics import mean_squared_error, mean_absolute_percentage_error
 from sklearn.inspection import permutation_importance
 from scipy.stats import halfcauchy, norm
 import matplotlib.pyplot as plt
+from scipy.stats import percentileofscore
 
 from pathlib import Path
 import pandas as pd
@@ -16,6 +17,7 @@ import matplotlib.pyplot as plt
 
 import arviz as az 
 import pymc3 as pm
+from patsy import dmatrix, build_design_matrices
 import scipy.stats as stats
 from theano import shared
 from sklearn.preprocessing import StandardScaler
@@ -442,3 +444,100 @@ class MultiLevelBayesian(BayesianModel):
             # weights_samples.append(w_preds)
             weights_samples[mode, :] = w_preds.flatten()
         return weights_samples
+
+    
+
+class BSpline:
+    def __init__(self, config: dict):
+        # super(MultiLevelBayesian, self).__init__(config)
+        self.config = config
+        self.save_folder = Path(config['save_to'])/f"BSpline"
+        self.save_folder.mkdir(parents=True, exist_ok=True)
+        self.save_as = self.save_folder/"idata_mode_1.nc"
+
+    def build_model(self):
+        self.models = [] 
+        self.norms =[]
+        self.idatas=[]
+        self.dfs = []
+        
+
+        for rank in range(self.config['N_modes']):
+            sub_ft  = self.feature_table[self.feature_table['rank'] == rank]
+            norm = StandardScaler()
+            singular = norm.fit_transform(sub_ft['singular'].values.reshape(-1,1)).flatten()
+            self.norms.append(norm)
+
+            # Define Bspline
+            num_knots = 5
+            self.N_knots = num_knots
+            knot_list = np.quantile(singular, np.linspace(0, 1, num_knots))
+
+            B = dmatrix(
+                "bs(singular, knots=knots, degree=3, include_intercept=True) - 1",
+                {"singular": singular, "knots": knot_list[1:-1]},
+            )
+
+            with pm.Model() as model:
+                a = pm.Normal("a", 1, 10)
+                w = pm.Normal("w", mu=0, sd=10, shape=B.shape[1])
+                mu = pm.Deterministic("mu", a + pm.math.dot(np.asarray(B, order="F"), w.T))
+                sigma = pm.Exponential("sigma", 1)
+                D = pm.Normal("D", mu, sigma, observed=sub_ft['w'].values)
+        
+        return
+
+    def train(self, feature_table: pd.DataFrame, samples=1000):
+        self.feature_table = feature_table
+        self._init_data(feature_table)
+        self.build_model()
+
+        for i, model in enumerate(self.models):
+            with model:
+                step = pm.NUTS(target_accept=0.95)
+                idata = pm.sample(samples, step=step, tune=1000, return_inferencedata=True, chains=1)
+
+                self.idatas.append(idata)
+                idata.to_netcdf(self.save_folder/f'idata_mode_{i}.nc')
+                self.idatas.append(idata)
+                self.dfs.append(az.summary(idata))
+        return
+    
+    def load(self, feature_table: pd.DataFrame):
+        print("Load BSpline")
+        self.feature_table = feature_table
+        self.build_model()
+
+        for mode in range(self.config['N_modes']):
+            self.idatas.append( az.from_netcdf(self.save_folder/f'idata_mode_{mode}.nc'))
+            self.dfs.append( az.summary(self.idatas[mode]))
+    
+    def predict(self, features):
+        assert features.shape == (self.config['N_modes'], 
+                                  len(self.config['y_labels']))
+        weights = []
+        
+        for rank in range(self.config['N_modes']):
+            df = self.dfs[rank]
+            a = df.loc['a', 'mean']
+            w = np.array([df.loc[f'w[{i}]', 'mean'] for i in range(self.N_knots+2)])
+
+            singular = features[rank, 0]
+            sub_ft = self.feature_table[self.feature_table['rank'] == rank]
+            singular_ref = sub_ft['singular'].values
+            knot_list = np.quantile(singular_ref, np.linspace(0, 1, self.N_knots))
+
+            B = dmatrix(
+                "bs(singular, knots=knots, degree=3, include_intercept=True) - 1",
+                {"singular": singular_ref, "knots": knot_list[1:-1]},
+            )
+            quntile = percentileofscore(singular_ref, singular)
+            new_design = {"singular": singular, 'knots': knot_list[1:-1]} 
+            # Construct a new design matrix
+            
+            B_new = build_design_matrices([B.design_info], new_design)[0]
+
+            weights.append( a + sum(np.matmul(B_new, w)))
+        return weights
+
+

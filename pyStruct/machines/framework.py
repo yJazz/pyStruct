@@ -103,28 +103,26 @@ class TwoMachineFramework:
         """ Visualize the training samples """
         # Get reference data
         X, y_trues = self.feature_processor.get_training_pairs()
-
-        # Get boundary conditions
         feature_table = self.feature_table
-        # for sample in range(self.config['N_samples']):
+
+        # Plot setting
         ncols=5
         nrows = int(np.ceil(self.config['N_samples']/ncols))
         figsize = (ncols*3.2, nrows*3)
         fig1, axes1 = plt.subplots(nrows, ncols, figsize=figsize)
         fig2, axes2 = plt.subplots(nrows, ncols, figsize=figsize)
 
-        for sample in range(20):
+        for sample in range(self.config['N_samples']):
+            ranked_feature_by_sample = self.feature_table[self.feature_table['sample']==sample].sort_values(by=['rank'])
             ax1 = axes1[sample//ncols, sample%ncols]
             ax2 = axes2[sample//ncols, sample%ncols]
 
-            # Optimize
-            ranked_feature_by_sample = self.feature_table[self.feature_table['sample']==sample].sort_values(by=['rank'])
+            # Plot optimize
             w_optm = ranked_feature_by_sample['w'].values
             y_optm = self._reconstruct(X[sample, ...], w_optm)
 
-            # Predict
-            ft_sample = feature_table[feature_table['sample'] == sample].sort_values(by=['rank'])
-            inputs = {x_label: ft_sample[x_label].values[0] for x_label in self.config['x_labels']}
+            # Plot predict
+            inputs = {x_label: ranked_feature_by_sample[x_label].values[0] for x_label in self.config['x_labels']}
             X_compose, features  = self.structure_predictor.predict_and_compose(inputs, X, perturb_structure=False)
             w_pred = self.weights_predictor.predict(features)
             y_pred = self._reconstruct(X_compose, w_pred)
