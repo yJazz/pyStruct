@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+from rainflow import extract_cycles
 
 
 class TwoMachineFramework:
@@ -99,11 +100,9 @@ class TwoMachineFramework:
             [X[mode, :] * weights[mode] for mode in range(self.config['N_modes']) ] ).sum(axis=0)
         return y_pred
 
+
     def prediction_validation(self):
         """ Visualize the training samples """
-        # Get reference data
-        X, y_trues = self.feature_processor.get_training_pairs()
-        feature_table = self.feature_table
 
         # Plot setting
         ncols=5
@@ -187,9 +186,13 @@ class TwoMachineFramework:
 
             # Call the optimizer
             weights = self.optimizer.optimize(X_r, y_r)
+            if len(weights) == self.config['N_modes']:
+                for i, w in enumerate(weights):
+                    self.feature_table.loc[id[i], 'w'] = w
+            else:
+                for i, w in enumerate(weights[1:]):
+                    self.feature_table.loc[id[i], 'w'] = w
 
-            for i, w in enumerate(weights):
-                self.feature_table.loc[id[i], 'w'] = w
         # Save the result
         self.feature_table.to_csv(self._optm_feature_table_file, index=None)
         return
@@ -199,3 +202,18 @@ class TwoMachineFramework:
         self.feature_table = pd.read_csv(self._optm_feature_table_file)
         self.feature_processor.feature_table = self.feature_table
         return
+
+    def get_rainflow(self, signal):
+        rf = []
+        for rng, mean, count, i_start, i_end in extract_cycles(signal): 
+            rf.append((rng, mean, count, i_start, i_end))
+        rf = np.array(rf)
+        output={
+            'range':rf[:, 0],
+            'mean':rf[:, 1],
+            'N_i':rf[:,2],
+            'i_start':rf[:, 3],
+            'i_end':rf[:,4],
+            'counts': sum(rf[:, 2])
+        }
+        return output

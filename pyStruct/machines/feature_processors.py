@@ -3,7 +3,7 @@ import numpy as np
 from scipy.fft import fft, fftfreq
 from typing import Protocol
 
-from pyStruct.data.dataset import ModesManager
+from pyStruct.data.dataset import NormalizedModesManager, NonNormalizedModeManager
 
  
 def get_psd(dt_s, x):
@@ -133,7 +133,10 @@ class CoherentStrength:
     """
     def __init__(self, config):
         self.config = config
-        self.pods = ModesManager(name='', workspace=config['workspace'], to_folder=None)
+        if config['Normalize_Y']:
+            self.pods = NormalizedModesManager(name='', workspace=config['workspace'], to_folder=None)
+        else:
+            self.pods = NonNormalizedModeManager(name='', workspace=config['workspace'], to_folder=None)
         # self.features = ['sample', 'mode', 'theta_deg', 'singualr', 'probe_strength']
         self.feature_table = self._create_feature_table(config['theta_deg'])
         self._rank_the_modes_by_strength()
@@ -216,12 +219,12 @@ class CoherentStrength:
 
             # Sort the dataframe by the strength
             ranked_modes = feature_per_sample['mode'].values
-            # cs = feature_per_sample['probe_phase'].values
+            cs = feature_per_sample['probe_strength'].values
 
             for i, rank in enumerate(ranked_modes[:self.config['N_modes']]):
-                # X[sample, i, :] = X_temporals[sample, rank, :] * cs[rank] *10
+                X[sample, i, :] = X_temporals[sample, rank, :] * cs[rank] *10
                 # X[sample, i, :] = X_temporals[sample, rank, :] * np.sign(cs[rank]) *10
-                X[sample, i, :] = X_temporals[sample, rank, :] * 1
+                # X[sample, i, :] = X_temporals[sample, rank, :] * 1
             useful_modes_idx.append(ranked_modes)
 
         return X, useful_modes_idx
