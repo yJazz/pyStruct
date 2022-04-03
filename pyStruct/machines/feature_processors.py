@@ -137,19 +137,24 @@ class CoherentStrength:
             self.pods = NormalizedModesManager(name='', workspace=config['workspace'], to_folder=None)
         else:
             self.pods = NonNormalizedModeManager(name='', workspace=config['workspace'], to_folder=None)
-        # self.features = ['sample', 'mode', 'theta_deg', 'singualr', 'probe_strength']
-        self.feature_table = self._create_feature_table(config['theta_deg'])
+
+        # Create feature table
+        self.feature_table = self._create_feature_table()
+        # Rank feature table
         self._rank_the_modes_by_strength()
     
-    def _create_feature_table(self, theta_deg):
+    def _create_feature_table(self) -> pd.DataFrame:
+        print("Processing feature table")
+        feature_table_all_theatas = [self._create_feature_theta_table(theta_deg) for theta_deg in self.config['theta_degs']]
+        feature_table = pd.concat(feature_table_all_theatas, ignore_index=True)
+        return feature_table
+
+    def _create_feature_theta_table(self, theta_deg):
         # Read statepoint
         bcs = self.pods.bcs
-
-
         X_temporals = self.pods.X_temporals
         X_s = self.pods.X_s
         X_spatials = self.pods.X_spatials
-
         N_sample, N_mode, _, _ = X_spatials.shape
         
         loc_index = self.pods.T_walls[str(theta_deg)]['loc_index']
@@ -170,11 +175,10 @@ class CoherentStrength:
         vel_ratio = np.array(mc_flat)/np.array(mh_flat)
         Tc_flat = [bcs[bcs['sample']==sample]['T_c'].iloc[0] for sample in range(N_sample) for mode in range(N_mode)]
         Th_flat = [bcs[bcs['sample']==sample]['T_h'].iloc[0] for sample in range(N_sample) for mode in range(N_mode)]
-
-
         return pd.DataFrame({
             'sample': [sample for sample in range(N_sample) for mode in range(N_mode)],
             'mode': [mode for sample in range(N_sample) for mode in range(N_mode)],
+            'theta_deg':theta_deg,
             'm_c': mc_flat,
             'm_h':mh_flat,
             'vel_ratio': vel_ratio,
@@ -188,14 +192,17 @@ class CoherentStrength:
             })
 
     def _rank_the_modes_by_strength(self):
+        print("Rank feature table")
         self.feature_table['rank'] = np.zeros(len(self.feature_table))
-        for sample in range(self.pods.N_samples):
-            feature_by_sample = self.feature_table[self.feature_table['sample'] == sample]
-            sorted_feature = feature_by_sample.sort_values(by=['probe_strength'], ascending=False)
-            ids = sorted_feature.index
-            for rank, id in enumerate(ids):
-                self.feature_table.loc[id, 'rank'] = int(rank)
-        self.feature_table.sort_values(by=['sample', 'rank'], ignore_index=True, inplace=True)
+        for theta_deg in self.config['theta_degs']:
+            for sample in range(self.pods.N_samples):
+                feature_by_sample = self.feature_table[self.feature_table['sample'] == sample]
+                feature_by_sample_theta = feature_by_sample[feature_by_sample['theta_deg'] == theta_deg]
+                sorted_feature = feature_by_sample_theta.sort_values(by=['probe_strength'], ascending=False)
+                ids = sorted_feature.index
+                for rank, id in enumerate(ids):
+                    self.feature_table.loc[id, 'rank'] = int(rank)
+        self.feature_table.sort_values(by=['theta_deg', 'sample', 'rank'], ignore_index=True, inplace=True)
         return
             
     def get_bcs(self):
