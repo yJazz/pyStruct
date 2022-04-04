@@ -4,6 +4,7 @@ import json
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import itertools
 from tqdm import tqdm
 from rainflow import extract_cycles
 
@@ -40,6 +41,7 @@ class TwoMachineFramework:
 
         # check file
         self._optm_feature_table_file = self.save_to / 'optm_feature_table.csv'
+
 
     def train(self, show=False):
 
@@ -91,13 +93,16 @@ class TwoMachineFramework:
         y_pred = self._reconstruct(X_compose, weights)
         return y_pred
 
-    def _reconstruct(self, X, weights, T_0):
+    def _reconstruct(self, X, weights, T_0=None):
         # Intercept model 
+        if not T_0:
+            print("No T_0 is provide; only predict the fluc")
+            T_0 =0
         y_pred = T_0+ np.matmul(weights, X)
         return y_pred
 
 
-    def prediction_validation(self):
+    def prediction_validation(self, theta_deg: float):
         """ Visualize the training samples """
 
         # Plot setting
@@ -107,8 +112,11 @@ class TwoMachineFramework:
         fig1, axes1 = plt.subplots(nrows, ncols, figsize=figsize)
         fig2, axes2 = plt.subplots(nrows, ncols, figsize=figsize)
 
+        X, y_trues = self.feature_processor.get_training_pairs(theta_deg)
+        ft = self.feature_table[self.feature_table['theta_deg'] == theta_deg]
+
         for sample in range(self.config['N_samples']):
-            ranked_feature_by_sample = self.feature_table[self.feature_table['sample']==sample].sort_values(by=['rank'])
+            ranked_feature_by_sample = ft[ft['sample'] ==sample].sort_values(by=['rank'])
             ax1 = axes1[sample//ncols, sample%ncols]
             ax2 = axes2[sample//ncols, sample%ncols]
 
@@ -120,7 +128,9 @@ class TwoMachineFramework:
             inputs = {x_label: ranked_feature_by_sample[x_label].values[0] for x_label in self.config['x_labels']}
             X_compose, features  = self.structure_predictor.predict_and_compose(inputs, X, perturb_structure=False)
             w_pred = self.weights_predictor.predict(features)
-            y_pred = self._reconstruct(X_compose, w_pred)
+
+            T_0 = self.level_table[(self.level_table['sample']==sample) & (self.level_table['theta_deg']==theta_deg)]['T_0'].iloc[0]
+            y_pred = self._reconstruct(X_compose, w_pred, T_0)
 
             # Plot: 
             ax1.plot(y_trues[sample, :], label='True')
@@ -132,82 +142,79 @@ class TwoMachineFramework:
 
         plt.legend(bbox_to_anchor=(0, 1.1))
         plt.tight_layout()
-        fig1.savefig(self.save_to/'validation.png')
+        fig1.savefig(self.save_to/f'validation_{theta_deg}deg.png')
         plt.show()
         return 
 
-    def optimization_validation(self):
-        for theta_deg in self.config['theta_degs']:
-            feature_theta = self.feature_table[self.feature_table['theta_deg'] == theta_deg]
-            ncols = 5
-            nrows = int(np.ceil(self.config['N_samples']/ncols))
-            figsize = (ncols*3.2, nrows*3)
-            fig, axes = plt.subplots(nrows, ncols, figsize=figsize)
+    def optimization_validation(self, theta_deg):
+        feature_theta = self.feature_table[self.feature_table['theta_deg'] == theta_deg]
+        ncols = 5
+        nrows = int(np.ceil(self.config['N_samples']/ncols))
+        figsize = (ncols*3.2, nrows*3)
+        fig, axes = plt.subplots(nrows, ncols, figsize=figsize)
 
-            X, y_trues = self.feature_processor.get_training_pairs(theta_deg)
+        X, y_trues = self.feature_processor.get_training_pairs(theta_deg)
 
-            for sample in range(self.config['N_samples']):
-                ranked_feature_by_sample = feature_theta[feature_theta['sample'] == sample].sort_values(by=['rank'])
+        for sample in range(self.config['N_samples']):
+            ranked_feature_by_sample = feature_theta[feature_theta['sample'] == sample].sort_values(by=['rank'])
 
-                ax = axes[sample//ncols, sample%ncols]
-                ax.plot(y_trues[sample, :], label='True')
-                
-                # optimization
-                weights = ranked_feature_by_sample['w'].values
-                T_0 = self.level_table[(self.level_table['sample']==sample) & (self.level_table['theta_deg']==theta_deg)]['T_0'].iloc[0]
-                y_optm = self._reconstruct(X[sample, ...], weights, T_0)
-                ax.plot(y_optm, label='Optm')
+            ax = axes[sample//ncols, sample%ncols]
+            ax.plot(y_trues[sample, :], label='True')
             
-            plt.suptitle(f'theta={theta_deg}')
-            plt.legend(bbox_to_anchor=(0, 1.1))
-            plt.tight_layout()
-            plt.savefig(self.save_to/'optimization.png')
-            plt.show()
+            # optimization
+            weights = ranked_feature_by_sample['w'].values
+            T_0 = self.level_table[(self.level_table['sample']==sample) & (self.level_table['theta_deg']==theta_deg)]['T_0'].iloc[0]
+            y_optm = self._reconstruct(X[sample, ...], weights, T_0)
+            ax.plot(y_optm, label='Optm')
+        
+        plt.suptitle(f'theta={theta_deg}')
+        plt.legend(bbox_to_anchor=(0, 1.1))
+        plt.tight_layout()
+        plt.savefig(self.save_to/'optimization.png')
+        plt.show()
+
+    def __create_empty_level_table(self, theta_deg):
+        # Initialize level tabel
+        level_table = self.feature_processor.pods.bcs.copy()
+        level_table['theta_deg'] = np.ones(len(level_table)) * theta_deg
+        level_table['T_0'] = np.zeros(len(level_table))
+        return level_table
 
     def _optimize(self):
+        """ For every theta_deg, every sample, do optimization"""
         # Initalize a place holder 
         self.feature_table['w'] = np.zeros(len(self.feature_table))
-        level_tables=[]
+        self.level_table = pd.concat([ self.__create_empty_level_table(theta_deg) for theta_deg in self.config['theta_degs']], ignore_index=True)
 
         # Run optimization and Create table 
-        for theta_deg in self.config['theta_degs']:
-            print(f"Optimizing Theta= {theta_deg}")
+        for theta_deg, sample in itertools.product(self.config['theta_degs'], np.arange(self.config['N_modes'])):
+            print(f"Optimizing Theta= {theta_deg}, Sample={sample}")
 
-            # Initialize level tabel
-            level_table = self.feature_processor.pods.bcs.copy()
-            level_table['theta_deg'] = np.ones(len(level_table)) * theta_deg
-            level_table['T_0'] = np.zeros(len(level_table))
-
-            # Retrieve data
+            # Retreve data
             X, y = self.feature_processor.get_training_pairs(theta_deg)
-            feature_theta = self.feature_table[self.feature_table['theta_deg'] == theta_deg]
+            X_r = X[sample, ...]
+            y_r = y[sample, ...]
 
-            for sample in range(self.config['N_samples']):
-                print(f"- optimizing case {sample}")
-                proc_id = f'-- proc_{sample}'
-                feature_by_sample = feature_theta[feature_theta['sample'] == sample]
-                id = feature_by_sample.index
+            # Optimize 
+            filtered_feature = self.feature_table[ (self.feature_table['sample']==sample) & (self.feature_table['theta_deg']== theta_deg) ]
+            id = filtered_feature.index
 
-                # Get modes in single case
-                X_r = X[sample, range(self.config['N_modes']), :]
-                y_r = y[sample, ...]
+            # Call the optimizer
+            weights = self.optimizer.optimize(X_r, y_r)
 
-                # Call the optimizer
-                weights = self.optimizer.optimize(X_r, y_r)
-                if len(weights) == self.config['N_modes']:
-                    for i, w in enumerate(weights):
-                        self.feature_table.loc[id[i], 'w'] = w
-                else:
-                    level_table.loc[level_table['sample']==sample, 'T_0'] = weights[0]
-                    for i, w in enumerate(weights[1:]):
-                        self.feature_table.loc[id[i], 'w'] = w
-            level_tables.append(level_table)
-
-        # Compose all the level table
-        self.level_table = pd.concat(level_tables, ignore_index=True)
-        self.level_table.to_csv(self.save_to/'level_table.csv', index=None)
+            # Keep record
+            if len(weights) == self.config['N_modes']:
+                for i, w in enumerate(weights):
+                    self.feature_table.loc[id[i], 'w'] = w
+            else:
+                # keep record in level table
+                self.level_table.loc[(self.level_table['sample']==sample) & (self.level_table['theta_deg']== theta_deg), 'T_0'] = weights[0]
+                # keep record in feature table
+                for i, w in enumerate(weights[1:]):
+                    self.feature_table.loc[id[i], 'w'] = w
 
         # Save the result
+        self.level_table.to_csv(self.save_to/'level_table.csv', index=None)
         self.feature_table.to_csv(self._optm_feature_table_file, index=None)
         return
 
