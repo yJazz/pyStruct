@@ -208,9 +208,9 @@ class CoherentStrength:
     def get_bcs(self):
         return self.pods.bcs
 
-    def get_training_pairs(self):
+    def get_training_pairs(self, theta_deg: float):
         X, _ = self.get_X()
-        y = self.get_y()
+        y = self.get_y(theta_deg)
         return X, y
 
     def get_X(self):
@@ -236,8 +236,8 @@ class CoherentStrength:
 
         return X, useful_modes_idx
         
-    def get_y(self):
-        y = self.pods.T_walls[str(self.config['theta_deg'])]['T_wall']
+    def get_y(self, theta_deg: float):
+        y = self.pods.T_walls[str(theta_deg)]['T_wall']
         return y
 
 

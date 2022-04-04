@@ -2,7 +2,6 @@ from pathlib import Path
 import json
 import numpy as np
 import pandas as pd
-import wandb
 from scipy.optimize import minimize
 from typing import Protocol
 from scipy.fft import fft, fftfreq

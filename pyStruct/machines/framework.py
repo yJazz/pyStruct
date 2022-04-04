@@ -21,25 +21,22 @@ class TwoMachineFramework:
         # Assertions: Make sure each inputs are of the right class
         self.config = config
         self.feature_processor = feature_processor(config)
-        self._init_data(start_new)
         self.optimizer = optimizer(config)
         self.weights_predictor = weights_predictor(config)
         self.structure_predictor = structure_predictor(config)
 
-    def _init_data(self, start_new):
+        # save the feature table
+        self.save_to = Path(self.config['save_to'])
         self.feature_table = self.feature_processor.feature_table
+        self.feature_table.to_csv(self.save_to/'feature_table.csv', index=None)
 
         # save the config
-        self.save_to = Path(self.config['save_to'])
         if start_new:
             shutil.rmtree(self.save_to, ignore_errors=True)
         self.save_to.mkdir(parents=True, exist_ok=True)
         config_file = self.save_to/'config.json'
         with open(config_file, 'w') as f:
             json.dump(self.config, f)
-        
-        # save the feature table
-        self.feature_table.to_csv(self.save_to/'feature_table.csv', index=None)
 
         # check file
         self._optm_feature_table_file = self.save_to / 'optm_feature_table.csv'
@@ -94,10 +91,9 @@ class TwoMachineFramework:
         y_pred = self._reconstruct(X_compose, weights)
         return y_pred
 
-    def _reconstruct(self, X, weights):
-        # Output
-        y_pred = np.array(
-            [X[mode, :] * weights[mode] for mode in range(self.config['N_modes']) ] ).sum(axis=0)
+    def _reconstruct(self, X, weights, T_0):
+        # Intercept model 
+        y_pred = T_0+ np.matmul(weights, X)
         return y_pred
 
 
@@ -141,57 +137,75 @@ class TwoMachineFramework:
         return 
 
     def optimization_validation(self):
-        X, y_trues = self.feature_processor.get_training_pairs()
-        
-        ncols = 5
-        nrows = int(np.ceil(self.config['N_samples']/ncols))
-        figsize = (ncols*3.2, nrows*3)
-        fig, axes = plt.subplots(nrows, ncols, figsize=figsize)
+        for theta_deg in self.config['theta_degs']:
+            feature_theta = self.feature_table[self.feature_table['theta_deg'] == theta_deg]
+            ncols = 5
+            nrows = int(np.ceil(self.config['N_samples']/ncols))
+            figsize = (ncols*3.2, nrows*3)
+            fig, axes = plt.subplots(nrows, ncols, figsize=figsize)
 
-        for sample in range(self.config['N_samples']):
-            ranked_feature_by_sample = self.feature_table[self.feature_table['sample']==sample].sort_values(by=['rank'])
+            X, y_trues = self.feature_processor.get_training_pairs(theta_deg)
 
-            ax = axes[sample//ncols, sample%ncols]
-            ax.plot(y_trues[sample, :], label='True')
+            for sample in range(self.config['N_samples']):
+                ranked_feature_by_sample = feature_theta[feature_theta['sample'] == sample].sort_values(by=['rank'])
+
+                ax = axes[sample//ncols, sample%ncols]
+                ax.plot(y_trues[sample, :], label='True')
+                
+                # optimization
+                weights = ranked_feature_by_sample['w'].values
+                T_0 = self.level_table[(self.level_table['sample']==sample) & (self.level_table['theta_deg']==theta_deg)]['T_0'].iloc[0]
+                y_optm = self._reconstruct(X[sample, ...], weights, T_0)
+                ax.plot(y_optm, label='Optm')
             
-            # optimization
-            weights = ranked_feature_by_sample['w'].values
-            y_optm = self._reconstruct(X[sample, ...], weights)
-            ax.plot(y_optm, label='Optm')
-
-        plt.legend(bbox_to_anchor=(0, 1.1))
-        plt.tight_layout()
-        plt.savefig(self.save_to/'optimization.png')
-        plt.show()
+            plt.suptitle(f'theta={theta_deg}')
+            plt.legend(bbox_to_anchor=(0, 1.1))
+            plt.tight_layout()
+            plt.savefig(self.save_to/'optimization.png')
+            plt.show()
 
     def _optimize(self):
-        # Retrieve data
-        X, y = self.feature_processor.get_training_pairs()
-
-        # Create Space holder
+        # Initalize a place holder 
         self.feature_table['w'] = np.zeros(len(self.feature_table))
+        level_tables=[]
 
         # Run optimization and Create table 
-        for sample in range(self.config['N_samples']):
-            feature_by_sample = self.feature_table[self.feature_table['sample']==sample]
-            # feature_by_sample = feature_by_sample.sort_values(by='rank')
-            id = feature_by_sample.index
+        for theta_deg in self.config['theta_degs']:
+            print(f"Optimizing Theta= {theta_deg}")
 
-            print(f"Optimizing case {sample}")
-            proc_id = f'proc_{sample}'
+            # Initialize level tabel
+            level_table = self.feature_processor.pods.bcs.copy()
+            level_table['theta_deg'] = np.ones(len(level_table)) * theta_deg
+            level_table['T_0'] = np.zeros(len(level_table))
 
-            # Get modes in single case
-            X_r = X[sample, range(self.config['N_modes']), :]
-            y_r = y[sample, ...]
+            # Retrieve data
+            X, y = self.feature_processor.get_training_pairs(theta_deg)
+            feature_theta = self.feature_table[self.feature_table['theta_deg'] == theta_deg]
 
-            # Call the optimizer
-            weights = self.optimizer.optimize(X_r, y_r)
-            if len(weights) == self.config['N_modes']:
-                for i, w in enumerate(weights):
-                    self.feature_table.loc[id[i], 'w'] = w
-            else:
-                for i, w in enumerate(weights[1:]):
-                    self.feature_table.loc[id[i], 'w'] = w
+            for sample in range(self.config['N_samples']):
+                print(f"- optimizing case {sample}")
+                proc_id = f'-- proc_{sample}'
+                feature_by_sample = feature_theta[feature_theta['sample'] == sample]
+                id = feature_by_sample.index
+
+                # Get modes in single case
+                X_r = X[sample, range(self.config['N_modes']), :]
+                y_r = y[sample, ...]
+
+                # Call the optimizer
+                weights = self.optimizer.optimize(X_r, y_r)
+                if len(weights) == self.config['N_modes']:
+                    for i, w in enumerate(weights):
+                        self.feature_table.loc[id[i], 'w'] = w
+                else:
+                    level_table.loc[level_table['sample']==sample, 'T_0'] = weights[0]
+                    for i, w in enumerate(weights[1:]):
+                        self.feature_table.loc[id[i], 'w'] = w
+            level_tables.append(level_table)
+
+        # Compose all the level table
+        self.level_table = pd.concat(level_tables, ignore_index=True)
+        self.level_table.to_csv(self.save_to/'level_table.csv', index=None)
 
         # Save the result
         self.feature_table.to_csv(self._optm_feature_table_file, index=None)
@@ -201,6 +215,7 @@ class TwoMachineFramework:
         print("read feature table")
         self.feature_table = pd.read_csv(self._optm_feature_table_file)
         self.feature_processor.feature_table = self.feature_table
+        self.level_table = pd.read_csv(self.save_to/'level_table.csv')
         return
 
     def get_rainflow(self, signal):
