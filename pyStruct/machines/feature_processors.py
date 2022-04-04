@@ -155,7 +155,7 @@ class CoherentStrength:
         X_temporals = self.pods.X_temporals
         X_s = self.pods.X_s
         X_spatials = self.pods.X_spatials
-        N_sample, N_mode, _, _ = X_spatials.shape
+        N_sample, N_mode, N_dim, _ = X_spatials.shape
         
         loc_index = self.pods.T_walls[str(theta_deg)]['loc_index']
         X_probe = X_spatials[:, :, :, loc_index]
@@ -166,16 +166,14 @@ class CoherentStrength:
 
         singulars_flat = [X_s[sample, mode] for sample in range(N_sample) for mode in range(N_mode)]
         probe_strength_flat = [X_probe_norm[sample, mode] for sample in range(N_sample) for mode in range(N_mode)]
-        probe_phase_i = [X_probe[sample, mode, 0] for sample in range(N_sample) for mode in range(N_mode)]
-        probe_phase_j = [X_probe[sample, mode, 1] for sample in range(N_sample) for mode in range(N_mode)]
-        probe_phase_k = [X_probe[sample, mode, 2] for sample in range(N_sample) for mode in range(N_mode)]
-
+        
         mc_flat = [bcs[bcs['sample'] == sample]['m_c'].iloc[0] for sample in range(N_sample) for mode in range(N_mode)]
         mh_flat = [bcs[bcs['sample']==sample]['m_h'].iloc[0] for sample in range(N_sample) for mode in range(N_mode)]
         vel_ratio = np.array(mc_flat)/np.array(mh_flat)
         Tc_flat = [bcs[bcs['sample']==sample]['T_c'].iloc[0] for sample in range(N_sample) for mode in range(N_mode)]
         Th_flat = [bcs[bcs['sample']==sample]['T_h'].iloc[0] for sample in range(N_sample) for mode in range(N_mode)]
-        return pd.DataFrame({
+
+        df =  pd.DataFrame({
             'sample': [sample for sample in range(N_sample) for mode in range(N_mode)],
             'mode': [mode for sample in range(N_sample) for mode in range(N_mode)],
             'theta_deg':theta_deg,
@@ -186,10 +184,13 @@ class CoherentStrength:
             'T_h':Th_flat,
             'singular': singulars_flat,
             'probe_strength': probe_strength_flat,
-            'probe_phase_i': probe_phase_i,
-            'probe_phase_j': probe_phase_j,
-            'probe_phase_k': probe_phase_k,
+            # 'probe_phase_i': probe_phase_i,
+            # 'probe_phase_j': probe_phase_j,
+            # 'probe_phase_k': probe_phase_k,
             })
+        for i in range(N_dim):
+            df[f'probe_phase_{i}'] = [X_probe[sample, mode, i] for sample in range(N_sample) for mode in range(N_mode)]
+        return df
 
     def _rank_the_modes_by_strength(self):
         print("Rank feature table")

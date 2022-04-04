@@ -254,7 +254,7 @@ class NnRegressor:
         x = Dropout(dropout_rate)(x, training=True)
         x = Dense(256, activation='relu')(x)
         x = Dropout(dropout_rate)(x, training=True)
-        outputs = Dense(1)(x)
+        outputs = Dense(1, activation='linear')(x)
         model = Model(inputs, outputs)    
 
         return model
@@ -305,8 +305,8 @@ class NnRegressor:
         # predictions = []
         # for i in range(samples):
             # predictions.append(self.model.predict(features))
-        predictions = self.model.predict(features) 
-        return predictions
+        predictions = self.model.predict(features)
+        return predictions.flatten()
         
 
 

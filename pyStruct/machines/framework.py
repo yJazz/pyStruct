@@ -49,6 +49,7 @@ class TwoMachineFramework:
         print(f'=========== Optimization ==========')
         if not self._optm_feature_table_file.exists():
             self._optimize()
+            self._move_neg_sign_to_features()
         else:
             self._read_optm_feature_table()
 
@@ -142,7 +143,8 @@ class TwoMachineFramework:
 
         plt.legend(bbox_to_anchor=(0, 1.1))
         plt.tight_layout()
-        fig1.savefig(self.save_to/f'validation_{theta_deg}deg.png')
+        fig1.savefig(self.save_to/f'validation_deg{theta_deg}_signal.png')
+        fig2.savefig(self.save_to/f'validation_deg{theta_deg}_weights.png')
         plt.show()
         return 
 
@@ -224,6 +226,11 @@ class TwoMachineFramework:
         self.feature_processor.feature_table = self.feature_table
         self.level_table = pd.read_csv(self.save_to/'level_table.csv')
         return
+    
+    def _move_neg_sign_to_features(self):
+
+        ft = self.feature_table
+
 
     def get_rainflow(self, signal):
         rf = []
