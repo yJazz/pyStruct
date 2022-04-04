@@ -184,9 +184,6 @@ class CoherentStrength:
             'T_h':Th_flat,
             'singular': singulars_flat,
             'probe_strength': probe_strength_flat,
-            # 'probe_phase_i': probe_phase_i,
-            # 'probe_phase_j': probe_phase_j,
-            # 'probe_phase_k': probe_phase_k,
             })
         for i in range(N_dim):
             df[f'probe_phase_{i}'] = [X_probe[sample, mode, i] for sample in range(N_sample) for mode in range(N_mode)]
@@ -227,12 +224,14 @@ class CoherentStrength:
 
             # Sort the dataframe by the strength
             ranked_modes = feature_per_sample['mode'].values
-            cs = feature_per_sample['probe_strength'].values
+            # cs = feature_per_sample['probe_strength'].values
+            cs = feature_per_sample['probe_phase_3'].values
 
             for i, rank in enumerate(ranked_modes[:self.config['N_modes']]):
-                X[sample, i, :] = X_temporals[sample, rank, :] * cs[rank] *10
-                # X[sample, i, :] = X_temporals[sample, rank, :] * np.sign(cs[rank]) *10
-                # X[sample, i, :] = X_temporals[sample, rank, :] * 1
+                # X[sample, i, :] = X_temporals[sample, rank, :] * cs[rank] *10
+                # X[sample, i, :] = X_temporals[sample, rank, :] * cs[rank] *10
+                X[sample, i, :] = X_temporals[sample, rank, :] 
+
             useful_modes_idx.append(ranked_modes)
 
         return X, useful_modes_idx

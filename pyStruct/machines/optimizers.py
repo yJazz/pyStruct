@@ -171,7 +171,7 @@ class AllWeights:
         w_init = np.arange(N_modes)*0.1
         # constraint = self.get_constraint(N_modes)
         constraint = self.get_constraint(w_init)
-        bounds = [(-1, 1) for i in range(N_modes)]
+        bounds = [(-np.inf, np.inf) for i in range(N_modes)]
         result = minimize(
             objective_function, 
             w_init, 
