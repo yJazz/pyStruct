@@ -27,6 +27,35 @@ def pod_processing(x: np.array, truncate: int = None) -> tuple:
     print("Done")
     return s, spatial_modes, temporal_coeff
 
+def dmd_processing(x: np.ndarray, truncate: int = None) -> tuple:
+    x1 = np.array(x)[:, 0:-1]
+    x2 = np.array(x)[:, 1:]
+
+    # SVD
+    u, s, vH = np.linalg.svd(x1, full_matrices=False)
+    v = vH.transpose().conjugate()
+    s = np.diag(s)[:truncate, :truncate]
+    u = u[:, :truncate]
+    v = v[:, :truncate]
+
+    # 
+    Atilde = u.transpose() @ x2 @v @np.linalg.inv(s)
+    eigs, W = np.linalg.eig(Atilde)
+
+    Phi = x2 @ v @ np.linalg.inv(s) @W
+
+    # Record 
+    modes = Phi
+    eigenvalues = eigs
+
+    # compute amplitude
+    x1_0 = x1[:, 0]
+    b = np.linalg.pinv(Phi) @x1
+    amplitudes = b
+
+    return modes, eigenvalues, amplitudes
+
+
 
 class PodProcessor:
     def __init__(
@@ -49,6 +78,10 @@ class PodProcessor:
         N_grid = len(coord)
         self.N_grid = N_grid
 
+    def _get_time_series(self, file_path: Path):
+        file = pd.read_csv(file_path)
+        return [tuple(file[column].values[-self.N_t:]) for column in self.columns]
+
     def get_input_matrix(self): 
         print("Read time histroy")
         N_dim = len(self.columns)
@@ -65,11 +98,7 @@ class PodProcessor:
         x_matrix = np.concatenate([np.array(place_holder[i]) for i in range(N_dim)], axis=0)
         return x_matrix
 
-    def _get_time_series(self, file_path: Path):
-        file = pd.read_csv(file_path)
-        return [tuple(file[column].values[-self.N_t:]) for column in self.columns]
-
-    def pod(self, truncate:int=None):
+    def process(self, truncate:int=None):
         x_matrix = self.get_input_matrix()
         s, spatials, temporals = pod_processing(x_matrix, truncate)
 
@@ -88,7 +117,7 @@ class PodProcessor:
 
     def collect_spatial(self):
         spatials = np.genfromtxt(self.dst_folder / 'spatials.csv', delimiter=',')
-        return np.array([ get_spatial_pod(spatials, i, self.N_grids) for i in range(self.N_modes)])
+        return np.array([ split_modes_by_dimension(spatials, i, self.N_grids) for i in range(self.N_modes)])
 
     def collect_temporal(self):
         temporals = np.genfromtxt(self.dst_folder / 'temporals.csv', delimiter=',')
@@ -99,14 +128,58 @@ class PodProcessor:
         return np.array([s[mode] for mode in range(self.N_modes)]) 
 
 
+class DmdProcessor(PodProcessor):
+    def __init__(
+        self, 
+        columns: list[str], 
+        N_t: int, 
+        gridfile: Path,
+        time_series_folder: Path, 
+        dst_folder: Path
+        ):
+
+        self.columns = columns
+        self.N_t = N_t
+        self.gridfile = gridfile
+        self.time_series_folder = time_series_folder
+        self.dst_folder = dst_folder
+        self.dst_folder.mkdir(parents=True, exist_ok=True)
+        
+        coord = pd.read_csv(self.gridfile)
+        N_grid = len(coord)
+        self.N_grid = N_grid
+
+    def process(self, truncate:int=None):
+        x_matrix = self.get_input_matrix()
+        modes, eigenvalues, amplitudes = dmd_processing(x_matrix, truncate)
+
+        # save
+        modes_file = self.dst_folder/'modes.csv'
+        eigenvalues_file = self.dst_folder / 'eigenvalues.csv'
+        amplitudes_file = self.dst_folder / 'amplitudes.csv'
+        coord_file = self.dst_folder / 'coord.csv'
+
+        np.savetxt(modes_file, modes, delimiter=',')
+        np.savetxt(eigenvalues_file, eigenvalues, delimiter=',')
+        np.savetxt(amplitudes_file, amplitudes, delimiter=',')
+        shutil.copy(self.gridfile, coord_file)
+
+        return modes, eigenvalues, amplitudes
 
 
 
-def get_spatial_pod(spatial_modes, mode, n_grids):
+
+def split_modes_by_dimension(spatial_modes, mode_id, n_grids):
+    """ Parse the POD modes 
+        INPUT
+        --------------------
+        spatial_modes: array-like, with shape: (n_dim*n_grid, n_modes), the content is from the saved csv file 
+        mode: int, the id of the mode 
+    """
     output =[]
     dim = int(spatial_modes.shape[0] / n_grids)
     for d in range(dim):
-        output.append(spatial_modes[:, mode][n_grids * d: n_grids * (d + 1)])
+        output.append(spatial_modes[:, mode_id][n_grids * d: n_grids * (d + 1)])
     return np.array(output)
 
 
@@ -114,7 +187,10 @@ def get_temporal_pod(temporal_coeff, mode):
     return temporal_coeff[:, mode]
 
 
+def get_spatial_dmd(dmd_modes, mode_id, n_grids):
+    output = []
 
+    
 
 
 

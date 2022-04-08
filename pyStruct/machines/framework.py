@@ -8,6 +8,27 @@ import itertools
 from tqdm import tqdm
 from rainflow import extract_cycles
 
+def get_rainflow(signal):
+    rf = []
+    for rng, mean, count, i_start, i_end in extract_cycles(signal): 
+        rf.append((rng, mean, count, i_start, i_end))
+    rf = np.array(rf)
+    output={
+        'range':rf[:, 0],
+        'mean':rf[:, 1],
+        'N_i':rf[:,2],
+        'i_start':rf[:, 3],
+        'i_end':rf[:,4],
+        'counts': sum(rf[:, 2])
+    }
+    return output
+def get_signal_descriptions(signal: np.ndarray):
+    # des ={
+    #     'mean':signal.mean(),
+    #     'std':signal.std(),
+    #     'counts':get_rainflow(signal)['counts']
+    # }
+    return signal.mean(), signal.std(), get_rainflow(signal)['counts']
 
 class TwoMachineFramework:
     def __init__(
@@ -102,6 +123,39 @@ class TwoMachineFramework:
         y_pred = T_0+ np.matmul(weights, X)
         return y_pred
 
+
+    def rainflow_validation(self, theta_deg: float):
+        X, y_trues = self.feature_processor.get_training_pairs(theta_deg)
+        ft = self.feature_table[self.feature_table['theta_deg'] == theta_deg]
+
+        col_names = ['sample', 'true_mean', 'pred_mean','true_std', 'pred_std', 'true_counts', 'pred_counts']
+        comp_array = np.zeros((self.config['N_samples'], len(col_names)))
+
+        for sample in range(self.config['N_samples']):
+            ranked_feature_by_sample = ft[ft['sample'] ==sample].sort_values(by=['rank'])
+
+            # Plot optimize
+            w_optm = ranked_feature_by_sample['w'].values
+            y_optm = self._reconstruct(X[sample, ...], w_optm)
+
+            # Plot predict
+            inputs = {x_label: ranked_feature_by_sample[x_label].values[0] for x_label in self.config['x_labels']}
+            X_compose, features  = self.structure_predictor.predict_and_compose(inputs, X, perturb_structure=False)
+            w_pred = self.weights_predictor.predict(features)
+
+            T_0 = self.level_table[(self.level_table['sample']==sample) & (self.level_table['theta_deg']==theta_deg)]['T_0'].iloc[0]
+            y_pred = self._reconstruct(X_compose, w_pred, T_0)
+            
+            # Get descriptions
+            true_mean, true_std, true_counts = get_signal_descriptions(y_trues[sample,...])
+            pred_mean, pred_std, pred_counts = get_signal_descriptions(y_pred)
+
+            comp_array[sample, :] = (sample, true_mean, pred_mean, true_std, pred_std, true_counts, pred_counts)
+
+        df = pd.DataFrame(comp_array, columns=col_names)
+
+            # Plot: 
+        return df
 
     def prediction_validation(self, theta_deg: float):
         """ Visualize the training samples """
@@ -231,18 +285,3 @@ class TwoMachineFramework:
 
         ft = self.feature_table
 
-
-    def get_rainflow(self, signal):
-        rf = []
-        for rng, mean, count, i_start, i_end in extract_cycles(signal): 
-            rf.append((rng, mean, count, i_start, i_end))
-        rf = np.array(rf)
-        output={
-            'range':rf[:, 0],
-            'mean':rf[:, 1],
-            'N_i':rf[:,2],
-            'i_start':rf[:, 3],
-            'i_end':rf[:,4],
-            'counts': sum(rf[:, 2])
-        }
-        return output

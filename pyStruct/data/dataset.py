@@ -291,7 +291,7 @@ def sliding_window(X,
 
 
 
-class NormalizedModesManager:
+class PodModesManager:
     """ 
     Organize the propcessed data in a class. 
     Attributes:
@@ -302,11 +302,11 @@ class NormalizedModesManager:
         bcs: pd.DataFrame
 
     """
-    def __init__(self, name, workspace, to_folder=None):
+    def __init__(self, name, workspace, normalize_y, to_folder=None):
         self.name = name
         self.workspace = Path(workspace)
-        self.X_spatials, self.X_temporals, self.X_s, self.coords, self.T_walls = self._init_data()
-
+        self.normalize_y = normalize_y
+        self._init_data()
 
         if to_folder:
             self.to_folder = Path(to_folder)
@@ -324,7 +324,7 @@ class NormalizedModesManager:
         # Determine the plot grids 
         self.ncols = 5
         self.nrows = ceil(self.N_samples / self.ncols)
-    
+
     def __get_path(self):
         feature_temporal_path = self.workspace / 'features' / 'X_temporals.pkl'
         feature_spatial_path = self.workspace / 'features' / 'X_spatials.pkl'
@@ -333,7 +333,10 @@ class NormalizedModesManager:
 
         return feature_temporal_path, feature_spatial_path, feature_s_path, coords_path
 
-    def __get_matrices(self, feature_temporal_path, feature_spatial_path, feature_s_path, coords_path):
+    def __get_matrices(self):
+        # get path
+        feature_temporal_path, feature_spatial_path, feature_s_path, coords_path = self.__get_path()
+        # read file
         X_spatials = read_pickle(feature_spatial_path)
         X_temporals = read_pickle(feature_temporal_path)
         X_s = read_pickle(feature_s_path)
@@ -351,21 +354,15 @@ class NormalizedModesManager:
             T_c = bc['T_COLD_C']
             T_h = bc['T_HOT_C']
             y[sample, ...] = (y[sample, ...] - T_c)/(T_h)
-        y = y - y.mean(axis=1).reshape(-1,1)
+        if self.normalize_y:
+            y = y - y.mean(axis=1).reshape(-1,1)
         return y
-    
-    def _init_data(self):
-        """ Initialize the data from the workspace"""
 
-        feature_temporal_path, feature_spatial_path, feature_s_path, coords_path = self.__get_path()
-        X_spatials, X_temporals, X_s, coords = self. __get_matrices(feature_temporal_path, feature_spatial_path, feature_s_path, coords_path )
-
-        N_sample, N_mode, N_t = X_temporals.shape
-
+    def _get_T_walls(self, N_t, coord):
         T_walls = {}
         for theta_deg in [0, 5, 10, 15, 20]:
             
-            loc_index =  find_loc_index(theta_rad=theta_deg/180*np.pi, coord=coords[0])
+            loc_index =  find_loc_index(theta_rad=theta_deg/180*np.pi, coord=coord)
 
             # Get BC
             bcs = {} 
@@ -382,8 +379,23 @@ class NormalizedModesManager:
 
             # Group info
             T_walls[str(theta_deg)] = {'loc_index':loc_index, 'T_wall':y}
+        return T_walls
+    
+    def _init_data(self):
+        """ Initialize the data from the workspace"""
 
-        return X_spatials, X_temporals, X_s, coords, T_walls
+        X_spatials, X_temporals, X_s, coords = self. __get_matrices()
+
+        N_sample, N_mode, N_t = X_temporals.shape
+        T_walls = self._get_T_walls(N_t, coords[0])
+
+        # Init data
+        self.X_spatials = X_spatials
+        self.X_temporals = X_temporals
+        self.X_s = X_s
+        self.coords = coords
+        self.T_walls = T_walls
+        return 
 
     def _read_signac(self):
         state_point_file = self.workspace/"signac_statepoint.json"
@@ -474,37 +486,47 @@ class NormalizedModesManager:
         cs = ax.contourf(X,Y,Z, cmap='jet', vmin=vmin, vmax=vmax)
         return cs
 
-class NonNormalizedModeManager(NormalizedModesManager):
-    def __init__(self, name, workspace, to_folder=None):
+class DmdModesManager(PodModesManager):
+    def __init__(self, name: str, workspace: str, N_t:int, normalize_y: bool, to_folder=None):
         self.name = name
         self.workspace = Path(workspace)
-        self.X_spatials, self.X_temporals, self.X_s, self.coords, self.T_walls = self._init_data()
+        self.normalize_y = normalize_y
+        self.N_t = N_t
+        self._init_data()
+
         if to_folder:
             self.to_folder = Path(to_folder)
         else:
             self.to_folder = self.workspace / "data"
             self.to_folder.mkdir(parents=True, exist_ok=True)
+    
+    def __get_path(self):
+        feature_modes_path = self.workspace / 'features' / 'X_modes.pkl'
+        feature_amplitudes_path = self.workspace / 'features' / 'X_amplitudes.pkl'
+        feature_eigenvalues_path = self.workspace / 'features' / 'X_eigenvalues.pkl'
+        coords_path = self.workspace / 'target'/ 'coords.pkl'
 
-        # Determine the dimension
-        self.N_samples, self.N_modes, self.N_dims, self.N_grids = self.X_spatials.shape
-        _, _, self.N_t = self.X_temporals.shape
+        return feature_modes_path, feature_amplitudes_path, feature_eigenvalues_path, coords_path
+    
+    def __get_matrices(self, ):
+        feature_modes_path, feature_amplitudes_path, feature_eigenvalues_path, coords_path = self.__get_path()
+        X_modes = read_pickle(feature_modes_path)
+        X_amplitudes = read_pickle(feature_amplitudes_path)
+        X_eigenvalues = read_pickle(feature_eigenvalues_path)
+        coords = read_pickle(coords_path)
+        return X_modes, X_amplitudes, X_eigenvalues, coords
 
-        # Read the boundary conditions
-        self.bcs = self.get_bcs()
 
-        # Determine the plot grids 
-        self.ncols = 5
-        self.nrows = ceil(self.N_samples / self.ncols)
+    def _init_data(self):
+        X_modes, X_amplitudes, X_eigenvalues, coords = self.__get_matrices()
+        N_sample, N_grids, N_dim, N_modes = X_modes.shape
+        T_walls = self._get_T_walls(self.N_t, coords[0])
+        # Init data
+        self.X_modes = X_modes
+        self.X_amplitudes = X_amplitudes
+        self.X_eigenvalues = X_eigenvalues
+        self.coords = coords
+        self.T_walls = T_walls
+        return 
+        
 
-    def _get_target(self, theta_deg: float, loc_index: int, bcs:dict, N_t:int):
-        N_sample = len(bcs)
-        target_filename = f'target_deg{int(theta_deg)}_loc{loc_index}.pkl'
-        target_data_path = self.workspace / 'target' / target_filename 
-        y = read_pickle(target_data_path)
-        y = y[:, -N_t:]
-        for sample in range(N_sample):
-            bc = bcs[sample]
-            T_c = bc['T_COLD_C']
-            T_h = bc['T_HOT_C']
-            y[sample, ...] = (y[sample, ...] - T_c)/(T_h)
-        return y

@@ -298,3 +298,33 @@ class InterceptAndWeights:
 
         error = fft_loss_weight*e_fft/e_fft_0 + std_loss_weight * e_std/e_std_0 + min_loss_weight* e_min/e_min_0 + max_loss_weight* e_max/e_max_0 + hist_weight* e_hist/e_hist_0
         return error
+
+class PositiveInterceptAndWeights(InterceptAndWeights):
+    def __init__(self, config, loss_weights_config=None):
+        super(PositiveInterceptAndWeights, self).__init__(config, loss_weights_config)
+    def optimize(
+        self,
+        X_r, 
+        y_r, 
+        ):
+        fft_loss_weight=self.config['fft_loss_weight']
+        std_loss_weight = self.config['std_loss_weight']
+        min_loss_weight = self.config['min_loss_weight']
+        max_loss_weight = self.config['max_loss_weight']
+        hist_loss_weight = self.config['hist_loss_weight']
+        max_iter=self.config['maxiter']
+
+        N_modes, N_t = X_r.shape
+        initial_weightings = initialize_loss_weighting(X_r, y_r)
+        w_init = np.arange(N_modes+1)[::-1]*0.1
+        # constraint = self.get_constraint(w_init)
+        result = minimize(
+            self.objective_function, 
+            w_init, 
+            method='SLSQP',
+            args=(X_r, y_r, fft_loss_weight, std_loss_weight, min_loss_weight, max_loss_weight, hist_loss_weight, initial_weightings),
+            bounds = ((0, np.inf) for i in range( N_modes+1)),
+            # constraints=constraint, 
+            options={'maxiter': max_iter}
+            )
+        return result.x

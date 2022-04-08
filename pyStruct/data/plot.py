@@ -1,9 +1,9 @@
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.interpolate import griddata
 
 
-from dataset import get_training_pairs, sliding_training_pairs, shuffle, split_train_test
-from model import make_gru
+from pyStruct.data.dataset import get_training_pairs, sliding_training_pairs, shuffle, split_train_test
 
 def random_plot(model, X, y):
     """ Randomly choose the sequence and plot the validation results"""
@@ -46,6 +46,15 @@ def plot_full_history(model, X_slide, y_slide):
     plt.legend()
     plt.show()    
     
+
+def plot_2D_spatial(ax, x, y, value, resolution=50, contour_method='cubic', vmin=None, vmax=None):
+    resolution = str(resolution) +'j'
+    X, Y = np.mgrid
+    points = [[a,b] for a,b in zip(x,y)]
+    Z = griddata(points, value, (X, Y), method=contour_method)
+
+    cs = ax.contourf(X,Y,Z, cmap='jet', vmin=vmin, vmax=vmax)
+    return cs
 
 
 if __name__ == '__main__':

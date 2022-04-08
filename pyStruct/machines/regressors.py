@@ -249,11 +249,11 @@ class NnRegressor:
         dropout_rate = 0.25
         inputs = Input(shape=(len(self.config['y_labels']),))
         x = Dense(64, activation='relu')(inputs)
-        x = Dropout(dropout_rate)(x, training=True)
+        # x = Dropout(dropout_rate)(x, training=True)
         x = Dense(128, activation='relu')(x)
-        x = Dropout(dropout_rate)(x, training=True)
+        # x = Dropout(dropout_rate)(x, training=True)
         x = Dense(256, activation='relu')(x)
-        x = Dropout(dropout_rate)(x, training=True)
+        # x = Dropout(dropout_rate)(x, training=True)
         outputs = Dense(1, activation='linear')(x)
         model = Model(inputs, outputs)    
 

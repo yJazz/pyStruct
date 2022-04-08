@@ -3,7 +3,7 @@ import numpy as np
 from scipy.fft import fft, fftfreq
 from typing import Protocol
 
-from pyStruct.data.dataset import NormalizedModesManager, NonNormalizedModeManager
+from pyStruct.data.dataset import PodModesManager, DmdModesManager
 
  
 def get_psd(dt_s, x):
@@ -133,10 +133,7 @@ class CoherentStrength:
     """
     def __init__(self, config):
         self.config = config
-        if config['Normalize_Y']:
-            self.pods = NormalizedModesManager(name='', workspace=config['workspace'], to_folder=None)
-        else:
-            self.pods = NonNormalizedModeManager(name='', workspace=config['workspace'], to_folder=None)
+        self.pods = PodModesManager(name='', workspace=config['workspace'],normalize_y=config['normalize_y'], to_folder=None)
 
         # Create feature table
         self.feature_table = self._create_feature_table()
@@ -224,13 +221,12 @@ class CoherentStrength:
 
             # Sort the dataframe by the strength
             ranked_modes = feature_per_sample['mode'].values
-            # cs = feature_per_sample['probe_strength'].values
-            cs = feature_per_sample['probe_phase_3'].values
+            cs = feature_per_sample['probe_strength'].values
+            # cs = feature_per_sample['probe_phase_3'].values
 
             for i, rank in enumerate(ranked_modes[:self.config['N_modes']]):
-                # X[sample, i, :] = X_temporals[sample, rank, :] * cs[rank] *10
-                # X[sample, i, :] = X_temporals[sample, rank, :] * cs[rank] *10
-                X[sample, i, :] = X_temporals[sample, rank, :] 
+                X[sample, i, :] = X_temporals[sample, rank, :] * cs[rank] *10
+                # X[sample, i, :] = X_temporals[sample, rank, :] 
 
             useful_modes_idx.append(ranked_modes)
 
@@ -321,3 +317,29 @@ class SimpleTemporal:
     def get_y(self):
         y = self.pods.T_walls[str(self.config['theta_deg'])]['T_wall']
         return y
+
+class DmdFeatures:
+    def __init__(self, config):
+        self.dmds =DmdModesManager(
+            name='', 
+            workspace=config['workspace'],
+            N_t = config['N_t'],
+            normalize_y=config['normalize_y'],
+            to_folder=None
+            ) 
+        pass
+
+
+    def create_feature_table(self):
+        pass
+
+    def get_training_pairs(self, theta_deg:float):
+        pass
+
+    def get_X(self):
+        X_modes = self.dmds.X_modes
+        return X_modes
+
+    def get_y(self):
+
+        pass
