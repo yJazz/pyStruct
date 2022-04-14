@@ -8,29 +8,79 @@ import itertools
 from tqdm import tqdm
 from rainflow import extract_cycles
 
-def get_rainflow(signal):
-    rf = []
-    for rng, mean, count, i_start, i_end in extract_cycles(signal): 
-        rf.append((rng, mean, count, i_start, i_end))
-    rf = np.array(rf)
-    output={
-        'range':rf[:, 0],
-        'mean':rf[:, 1],
-        'N_i':rf[:,2],
-        'i_start':rf[:, 3],
-        'i_end':rf[:,4],
-        'counts': sum(rf[:, 2])
-    }
-    return output
-def get_signal_descriptions(signal: np.ndarray):
-    # des ={
-    #     'mean':signal.mean(),
-    #     'std':signal.std(),
-    #     'counts':get_rainflow(signal)['counts']
-    # }
-    return signal.mean(), signal.std(), get_rainflow(signal)['counts']
+from pyStruct.machines.feature_processors import *
+from pyStruct.machines.optimizers import *
+from pyStruct.machines.regressors import *
+from pyStruct.machines.structures import *
+
+
+FEATURE_PROCESSORS = {
+    'COHERENT_STRENGTH': PodCoherentStrength
+}
+
+OPTIMIZERS = {
+    'POSITIVE_WEIGHTS': PositiveWeights,
+    'ALL_WEIGHTS':AllWeights,
+    'INTERCEPT': InterceptAndWeights,
+    'POS_INTERCEPT': PositiveInterceptAndWeights,
+}
+
+WEIGHTS_PREDICTORS ={
+    'BAYESIAN': BayesianModel,
+    'MULTIBAYESIAN':MultiLevelBayesian,
+    'GB': GbRegressor,
+    'BSPLINE':BSpline,
+    'NN': NnRegressor
+}
+STRUCTURE_PREDICTORS = {
+    'GB': GBLookupStructure,
+    'BAYESIAN': BayesianLookupStructure
+}
+
 
 class TwoMachineFramework:
+    def __init__(self, config):
+        # initialize the machines
+        self.feature_processor = FEATURE_PROCESSORS[config.machines.feature_processor.upper()]
+        self.optimizer = OPTIMIZERS[config.machines.optimizer.upper()]
+        self.structure_predictor = STRUCTURE_PREDICTORS[config.machines.structure_predictor.upper()]
+        self.weights_predictor = WEIGHTS_PREDICTORS[config.machines.weights_predictor.upper()]
+        
+    def _train_structure(self):
+        structure_table = self.feature_processor.get_structure_tables()
+        structure_predictions = self.structure_predictor.train(structure_table)
+
+    
+    def train(self):
+        # Train Structure
+        self._train_structure()
+
+        # todo: valiation: 
+        # compare structure_targets and structure_predictions
+
+        # Train Weights
+        # optimize 
+        temporal_signals_inputs = self.feature_processor.compose_temporal(structure_targets)
+        temperature = self.feature_processor.get_temporal_signals_outputs()
+        weights_targets = self.optimizer.optimize(temporal_signals_inputs, temperature)
+
+        # todo: valiation: 
+        # compare temperature and weights_predictions
+
+
+        weights_inputs = structure_targets
+        weights_predictions = self.weights_predictor(weights_inputs, weights_targets)
+
+        # todo: valiation: 
+        # compare weights_targets and weights_predictions
+        #
+        return
+
+    def predict(self):
+        pass
+
+
+class TwoMachineFramework_depr:
     def __init__(
         self,
         config: dict,
@@ -65,7 +115,6 @@ class TwoMachineFramework:
 
 
     def train(self, show=False):
-
         # Weight optimization 
         print(f'=========== Optimization ==========')
         if not self._optm_feature_table_file.exists():
@@ -89,7 +138,14 @@ class TwoMachineFramework:
         else:
             self.structure_predictor.load(self.feature_table)
 
-    
+    def _reconstruct(self, X, weights, T_0=None):
+        # Intercept model 
+        if not T_0:
+            print("No T_0 is provide; only predict the fluc")
+            T_0 =0
+        y_pred = T_0+ np.matmul(weights, X)
+        return y_pred
+
     def predict(
         self, 
         inputs: dict, 
@@ -115,121 +171,8 @@ class TwoMachineFramework:
         y_pred = self._reconstruct(X_compose, weights)
         return y_pred
 
-    def _reconstruct(self, X, weights, T_0=None):
-        # Intercept model 
-        if not T_0:
-            print("No T_0 is provide; only predict the fluc")
-            T_0 =0
-        y_pred = T_0+ np.matmul(weights, X)
-        return y_pred
 
-
-    def rainflow_validation(self, theta_deg: float):
-        X, y_trues = self.feature_processor.get_training_pairs(theta_deg)
-        ft = self.feature_table[self.feature_table['theta_deg'] == theta_deg]
-
-        col_names = ['sample', 'true_mean', 'pred_mean','true_std', 'pred_std', 'true_counts', 'pred_counts']
-        comp_array = np.zeros((self.config['N_samples'], len(col_names)))
-
-        for sample in range(self.config['N_samples']):
-            ranked_feature_by_sample = ft[ft['sample'] ==sample].sort_values(by=['rank'])
-
-            # Plot optimize
-            w_optm = ranked_feature_by_sample['w'].values
-            y_optm = self._reconstruct(X[sample, ...], w_optm)
-
-            # Plot predict
-            inputs = {x_label: ranked_feature_by_sample[x_label].values[0] for x_label in self.config['x_labels']}
-            X_compose, features  = self.structure_predictor.predict_and_compose(inputs, X, perturb_structure=False)
-            w_pred = self.weights_predictor.predict(features)
-
-            T_0 = self.level_table[(self.level_table['sample']==sample) & (self.level_table['theta_deg']==theta_deg)]['T_0'].iloc[0]
-            y_pred = self._reconstruct(X_compose, w_pred, T_0)
-            
-            # Get descriptions
-            true_mean, true_std, true_counts = get_signal_descriptions(y_trues[sample,...])
-            pred_mean, pred_std, pred_counts = get_signal_descriptions(y_pred)
-
-            comp_array[sample, :] = (sample, true_mean, pred_mean, true_std, pred_std, true_counts, pred_counts)
-
-        df = pd.DataFrame(comp_array, columns=col_names)
-
-            # Plot: 
-        return df
-
-    def prediction_validation(self, theta_deg: float):
-        """ Visualize the training samples """
-
-        # Plot setting
-        ncols=5
-        nrows = int(np.ceil(self.config['N_samples']/ncols))
-        figsize = (ncols*3.2, nrows*3)
-        fig1, axes1 = plt.subplots(nrows, ncols, figsize=figsize)
-        fig2, axes2 = plt.subplots(nrows, ncols, figsize=figsize)
-
-        X, y_trues = self.feature_processor.get_training_pairs(theta_deg)
-        ft = self.feature_table[self.feature_table['theta_deg'] == theta_deg]
-
-        for sample in range(self.config['N_samples']):
-            ranked_feature_by_sample = ft[ft['sample'] ==sample].sort_values(by=['rank'])
-            ax1 = axes1[sample//ncols, sample%ncols]
-            ax2 = axes2[sample//ncols, sample%ncols]
-
-            # Plot optimize
-            w_optm = ranked_feature_by_sample['w'].values
-            y_optm = self._reconstruct(X[sample, ...], w_optm)
-
-            # Plot predict
-            inputs = {x_label: ranked_feature_by_sample[x_label].values[0] for x_label in self.config['x_labels']}
-            X_compose, features  = self.structure_predictor.predict_and_compose(inputs, X, perturb_structure=False)
-            w_pred = self.weights_predictor.predict(features)
-
-            T_0 = self.level_table[(self.level_table['sample']==sample) & (self.level_table['theta_deg']==theta_deg)]['T_0'].iloc[0]
-            y_pred = self._reconstruct(X_compose, w_pred, T_0)
-
-            # Plot: 
-            ax1.plot(y_trues[sample, :], label='True')
-            ax1.plot(y_pred, label='Pred')
-
-            # Plot weights prediction
-            ax2.stem(w_optm)
-            ax2.stem(w_pred, markerfmt='r*')
-
-        plt.legend(bbox_to_anchor=(0, 1.1))
-        plt.tight_layout()
-        fig1.savefig(self.save_to/f'validation_deg{theta_deg}_signal.png')
-        fig2.savefig(self.save_to/f'validation_deg{theta_deg}_weights.png')
-        plt.show()
-        return 
-
-    def optimization_validation(self, theta_deg):
-        feature_theta = self.feature_table[self.feature_table['theta_deg'] == theta_deg]
-        ncols = 5
-        nrows = int(np.ceil(self.config['N_samples']/ncols))
-        figsize = (ncols*3.2, nrows*3)
-        fig, axes = plt.subplots(nrows, ncols, figsize=figsize)
-
-        X, y_trues = self.feature_processor.get_training_pairs(theta_deg)
-
-        for sample in range(self.config['N_samples']):
-            ranked_feature_by_sample = feature_theta[feature_theta['sample'] == sample].sort_values(by=['rank'])
-
-            ax = axes[sample//ncols, sample%ncols]
-            ax.plot(y_trues[sample, :], label='True')
-            
-            # optimization
-            weights = ranked_feature_by_sample['w'].values
-            T_0 = self.level_table[(self.level_table['sample']==sample) & (self.level_table['theta_deg']==theta_deg)]['T_0'].iloc[0]
-            y_optm = self._reconstruct(X[sample, ...], weights, T_0)
-            ax.plot(y_optm, label='Optm')
-        
-        plt.suptitle(f'theta={theta_deg}')
-        plt.legend(bbox_to_anchor=(0, 1.1))
-        plt.tight_layout()
-        plt.savefig(self.save_to/'optimization.png')
-        plt.show()
-
-    def __create_empty_level_table(self, theta_deg):
+    def _create_empty_level_table(self, theta_deg):
         # Initialize level tabel
         level_table = self.feature_processor.pods.bcs.copy()
         level_table['theta_deg'] = np.ones(len(level_table)) * theta_deg
@@ -240,7 +183,7 @@ class TwoMachineFramework:
         """ For every theta_deg, every sample, do optimization"""
         # Initalize a place holder 
         self.feature_table['w'] = np.zeros(len(self.feature_table))
-        self.level_table = pd.concat([ self.__create_empty_level_table(theta_deg) for theta_deg in self.config['theta_degs']], ignore_index=True)
+        self.level_table = pd.concat([ self._create_empty_level_table(theta_deg) for theta_deg in self.config['theta_degs']], ignore_index=True)
 
         # Run optimization and Create table 
         for theta_deg, sample in itertools.product(self.config['theta_degs'], np.arange(self.config['N_modes'])):
@@ -281,7 +224,3 @@ class TwoMachineFramework:
         self.level_table = pd.read_csv(self.save_to/'level_table.csv')
         return
     
-    def _move_neg_sign_to_features(self):
-
-        ft = self.feature_table
-

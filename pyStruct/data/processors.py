@@ -3,9 +3,12 @@ import shutil
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from tqdm import tqdm
+from typing import Callable
 
-def pod_processing(x: np.array, truncate: int = None) -> tuple:
+
+ProcessingFunction = Callable[[np.ndarray, int], tuple]
+
+def processing_pod(x: np.array, truncate: int = None) -> tuple:
     x_mean = x.mean(axis=1)
     x_podmx = x - np.reshape(x_mean, (len(x_mean), 1))
     x_podmx = np.array(x_podmx)
@@ -27,7 +30,7 @@ def pod_processing(x: np.array, truncate: int = None) -> tuple:
     print("Done")
     return s, spatial_modes, temporal_coeff
 
-def dmd_processing(x: np.ndarray, truncate: int = None) -> tuple:
+def processing_dmd(x: np.ndarray, truncate: int = None) -> tuple:
     x1 = np.array(x)[:, 0:-1]
     x2 = np.array(x)[:, 1:]
 
@@ -37,7 +40,6 @@ def dmd_processing(x: np.ndarray, truncate: int = None) -> tuple:
     s = np.diag(s)[:truncate, :truncate]
     u = u[:, :truncate]
     v = v[:, :truncate]
-
     # 
     Atilde = u.transpose() @ x2 @v @np.linalg.inv(s)
     eigs, W = np.linalg.eig(Atilde)
@@ -100,7 +102,7 @@ class PodProcessor:
 
     def process(self, truncate:int=None):
         x_matrix = self.get_input_matrix()
-        s, spatials, temporals = pod_processing(x_matrix, truncate)
+        s, spatials, temporals = processing_pod(x_matrix, truncate)
 
         # save
         s_file = self.dst_folder / 's.csv'
@@ -151,7 +153,7 @@ class DmdProcessor(PodProcessor):
 
     def process(self, truncate:int=None):
         x_matrix = self.get_input_matrix()
-        modes, eigenvalues, amplitudes = dmd_processing(x_matrix, truncate)
+        modes, eigenvalues, amplitudes = processing_dmd(x_matrix, truncate)
 
         # save
         modes_file = self.dst_folder/'modes.csv'

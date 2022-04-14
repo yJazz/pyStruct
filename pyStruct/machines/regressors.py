@@ -15,18 +15,8 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-import arviz as az 
-import pymc3 as pm
-from patsy import dmatrix, build_design_matrices
-import scipy.stats as stats
-from theano import shared
-from sklearn.preprocessing import StandardScaler
 
 
-import keras
-from keras.models import Model
-from keras.layers import Input, Dense, Dropout
-from sklearn.preprocessing import StandardScaler
 
 def plot_regression_deviance(reg, params, X_test_norm, y_test):
     test_score = np.zeros((params["n_estimators"],), dtype=np.float64)
@@ -154,7 +144,7 @@ def wp_split_train_test(feature_table, train_id, feature_labels, target_label):
     y_test = table_test[target_label]
     return X_train, y_train, X_test, y_test
 
-class WeightsPredictor(Protocol):
+class WeightsPredictor:
     def train(self, feature_table: pd.DataFrame):
         pass
     def predict(self, features: np.ndarray):
@@ -164,7 +154,7 @@ class WeightsPredictor(Protocol):
         pass
 
 
-class GbRegressor:
+class GbRegressor(WeightsPredictor):
     def __init__(self, config):
         self.config = config
         self.params = {
@@ -236,9 +226,14 @@ class GbRegressor:
 
 
 
-class NnRegressor:
+class NnRegressor(WeightsPredictor):
     """Give feature"""
     def __init__(self, config: dict):
+
+        import keras
+        from keras.models import Model
+        from keras.layers import Input, Dense, Dropout
+        from sklearn.preprocessing import StandardScaler
         self.config = config
 
         self.save_folder = Path(self.config['save_to']) / 'NN_weights_predictor'
@@ -311,11 +306,18 @@ class NnRegressor:
 
 
     
-class BayesianModel:
+class BayesianModel(WeightsPredictor):
     def __init__(
         self, 
         config:dict,
         ):
+
+        import arviz as az 
+        import pymc3 as pm
+        from patsy import dmatrix, build_design_matrices
+        import scipy.stats as stats
+        from theano import shared
+        from sklearn.preprocessing import StandardScaler
         self.config = config
         self.var_names = config['y_labels']
         self.target_name = 'w'
@@ -529,7 +531,7 @@ class MultiLevelBayesian(BayesianModel):
 
     
 
-class BSpline:
+class BSpline(WeightsPredictor):
     def __init__(self, config: dict):
         # super(MultiLevelBayesian, self).__init__(config)
         self.config = config

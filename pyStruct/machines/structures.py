@@ -42,7 +42,7 @@ def visualize_libray_matrix(sps, m_c, vel_ratio, theta_deg):
     plt.show(block=False)
     return 
 
-class StructurePredictor(Protocol):
+class StructurePredictor:
     def train(self):
         pass
     def load(self):
@@ -53,7 +53,7 @@ class StructurePredictor(Protocol):
         pass
 
 
-class GBLookupStructure:
+class GBLookupStructure(StructurePredictor):
     """ Given x_labels, output y_labels
         stratified by modes: each mode: a regression model
     """
@@ -246,7 +246,7 @@ class GBLookupStructure:
         return prob 
             
 
-class BayesianLookupStructure:
+class BayesianLookupStructure(StructurePredictor):
     def __init__(
         self, 
         config:dict,

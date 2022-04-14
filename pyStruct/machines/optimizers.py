@@ -129,13 +129,13 @@ def reconstruct_optimize(config: dict):
 
 
 
-class Optimizer(Protocol):
+class Optimizer:
     def init_config(self):
         pass
     def optimize(self):
         pass
 
-class AllWeights:
+class AllWeights(Optimizer):
     def __init__(self, config, loss_weights_config=None):
         self.config = config
         if loss_weights_config:
@@ -192,7 +192,7 @@ class AllWeights:
     def get_constraint(self, x):
         return tuple([{'type':'ineq', 'fun': lambda x,i=i: abs(x[i]) - abs(x[i+1])} for i in range(len(x)-1)] )
  
-class PositiveWeights:
+class PositiveWeights(Optimizer):
     def __init__(self, config, loss_weights_config=None):
         self.config = config
         if loss_weights_config:
@@ -240,7 +240,7 @@ class PositiveWeights:
             )
         return result.x
 
-class InterceptAndWeights:
+class InterceptAndWeights(Optimizer):
     def __init__(self, config, loss_weights_config=None):
         self.config = config
         if loss_weights_config:

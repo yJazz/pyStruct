@@ -1,0 +1,23 @@
+paths: 
+  save_to:  F:\project2_phD_bwrx\prediction_data
+
+# signac:
+#   method: 'pod'
+#   columns: 'Velocity[i] (m/s),Velocity[j] (m/s),Velocity[k] (m/s),Temperature (K)'
+
+features:
+  workspace: r'F:\project2_phD_bwrx\db_bwrx_aggregation\workspace\4ff1b3520e44de10cea74136b19eb307'
+  N_t: 1000
+  N_modes: 20
+  N_dim: 4 # 4 columns
+  N_trains: 15
+  normalize_y: False
+  theta_degs: [0, 5, 10, 15]
+
+machines:
+  feature_processor: COHERENT_STRENGTH
+  optimizer: ALL_WEIGHTS
+  structure_predictor: GB
+  weights_predictor: GB
+
+

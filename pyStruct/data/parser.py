@@ -1,3 +1,7 @@
+""" 
+Parse the cfd snapshots into time-series
+"""
+
 from pathlib import Path
 from tqdm import tqdm
 import os 
@@ -18,7 +22,6 @@ class TimeSeriesParser:
 
         # Initialize the folder if it doesn't exist
         self.dst_folder.mkdir(parents=True, exist_ok=True)
-    
     
     def _get_coordinates(self) -> pd.DataFrame:
         df = pd.read_csv(self.csv_paths[0])
