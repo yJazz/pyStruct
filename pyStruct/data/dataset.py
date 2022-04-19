@@ -378,7 +378,7 @@ class PodModesManager:
             y = self._get_target(theta_deg, loc_index, bcs, N_t)
 
             # Group info
-            T_walls[str(theta_deg)] = {'loc_index':loc_index, 'T_wall':y}
+            T_walls[f'{theta_deg:.2f}'] = {'loc_index':loc_index, 'T_wall':y}
         return T_walls
     
     def _init_data(self):

@@ -136,8 +136,7 @@ class Optimizer:
         pass
 
 class AllWeights(Optimizer):
-    def __init__(self, config, loss_weights_config=None):
-        self.config = config
+    def __init__(self, loss_weights_config=None):
         if loss_weights_config:
             assert len(loss_weights_config) == 5, "Need to specify: fft, std, min, max, hist"
 
@@ -156,7 +155,7 @@ class AllWeights(Optimizer):
     def optimize(
         self,
         X_r, 
-        y_r, 
+        y_r 
         ):
 
         fft_loss_weight=self.config['fft_loss_weight']
@@ -193,8 +192,7 @@ class AllWeights(Optimizer):
         return tuple([{'type':'ineq', 'fun': lambda x,i=i: abs(x[i]) - abs(x[i+1])} for i in range(len(x)-1)] )
  
 class PositiveWeights(Optimizer):
-    def __init__(self, config, loss_weights_config=None):
-        self.config = config
+    def __init__(self, loss_weights_config=None):
         if loss_weights_config:
             assert len(loss_weights_config) == 5, "Need to specify: fft, std, min, max, hist"
 
@@ -241,8 +239,7 @@ class PositiveWeights(Optimizer):
         return result.x
 
 class InterceptAndWeights(Optimizer):
-    def __init__(self, config, loss_weights_config=None):
-        self.config = config
+    def __init__(self, loss_weights_config=None):
         if loss_weights_config:
             assert len(loss_weights_config) == 5, "Need to specify: fft, std, min, max, hist"
 
@@ -300,8 +297,8 @@ class InterceptAndWeights(Optimizer):
         return error
 
 class PositiveInterceptAndWeights(InterceptAndWeights):
-    def __init__(self, config, loss_weights_config=None):
-        super(PositiveInterceptAndWeights, self).__init__(config, loss_weights_config)
+    def __init__(self, loss_weights_config=None):
+        super(PositiveInterceptAndWeights, self).__init__(loss_weights_config)
     def optimize(
         self,
         X_r, 

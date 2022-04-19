@@ -9,6 +9,27 @@ from typing import Protocol
 from pyStruct.data.dataset import PodModesManager, DmdModesManager
 from pyStruct.machines.datastructures import *
  
+@dataclass
+class PodModes1DDescriptors:
+    singular: np.ndarray
+    spatial: np.ndarray
+    # temporal: np.ndarray
+
+def process_pod_to_1D_Descriptors(sample: Sample, theta_deg: float):
+    loc_index = sample.walls[f'{theta_deg:.2f}'].loc_index
+    spatial_array = np.linalg.norm(sample.pod.X_spatial[:, :, loc_index], axis=1)
+    return PodModes1DDescriptors(
+        singular = sample.pod.X_s,
+        spatial = spatial_array
+        # temporals = 
+    )
+
+def get_temporal_behavior(temporal_mode):
+    """ Reflect the freqeuency of the mode"""
+    freq, psd = get_psd(0.005, temporal_mode)
+    sum = psd[:20].sum() *1E4
+    return sum
+
 def get_psd(dt_s, x):
     """
     Get fft of the samples
@@ -36,6 +57,35 @@ def get_psd(dt_s, x):
     psdx = 1 / (Fs * N) * abs(xdft_oneside)**2
     psdx[1:-1] = 2 * psdx[1:-1] # power for one-side
     return freq_oneside, psdx
+
+def get_pods_and_samples(workspace, theta_degs, normalize_y):
+    """ A messy code... should refactor later"""
+    samples = []
+
+    pod_manager = PodModesManager(name='', workspace=workspace, normalize_y=normalize_y)
+    bcs = pod_manager._read_signac()
+    for sample in range(pod_manager.N_samples):
+        m_c = bcs[sample]['M_COLD_KGM3S']
+        m_h = bcs[sample]['M_HOT_KGM3S']
+        T_c = bcs[sample]['T_COLD_C']
+        T_h = bcs[sample]['T_HOT_C']
+        X_spatial = pod_manager.X_spatials[sample, ...]
+        X_temporal = pod_manager.X_temporals[sample, ...]
+        X_s = pod_manager.X_s[sample, ...]
+        coord = pod_manager.coords[sample]
+
+        # Crate a data structure
+        bc = BoundaryCondition(m_c, m_h, T_c, T_h)
+        pod = PodFeatures(coord=coord, X_spatial=X_spatial, X_temporal=X_temporal, X_s=X_s)
+
+        walls = {}
+        for theta_deg in theta_degs:
+            T_wall = pod_manager.T_walls[f'{theta_deg:.2f}']['T_wall'][sample, :]
+            loc_index =pod_manager.T_walls[f'{theta_deg:.2f}']['loc_index']
+            wall = Wall(theta_deg=theta_deg, loc_index=loc_index, temperature=T_wall)
+            walls[f'{theta_deg:.2f}'] = wall
+        samples.append(Sample(name=f's{sample}', bc=bc, pod=pod, walls=walls))
+    return samples
 
 
 def get_probe_coord(theta, coord):
@@ -103,19 +153,7 @@ def get_spatial_strength(spatial_mode, coord, theta_in_rad):
         return np.linalg.norm(df[['u_value']])
 
 
-
-def get_temporal_behavior(temporal_mode):
-    """ Reflect the freqeuency of the mode"""
-    freq, psd = get_psd(0.005, temporal_mode)
-    sum = psd[:20].sum() *1E4
-    return sum
-
-
-
-
 class FeatureProcessor:
-    """ 
-    """
     def _collect_samples(self, inputs: list[dict]) -> None:
         raise NotImplementedError()
 
@@ -134,49 +172,6 @@ class FeatureProcessor:
     def reconstruct(self, temporal_matrix, weights) -> np.ndarray:
         raise NotImplementedError()
 
-def get_pods_and_samples(workspace, theta_degs, normalize_y):
-    """ A messy code... should refactor later"""
-    samples = []
-
-    pod_manager = PodModesManager(name='', workspace=workspace, normalize_y=normalize_y)
-    bcs = pod_manager._read_signac()
-    for sample in range(pod_manager.N_samples):
-        m_c = bcs[sample]['M_COLD_KGM3S']
-        m_h = bcs[sample]['M_HOT_KGM3S']
-        T_c = bcs[sample]['T_COLD_C']
-        T_h = bcs[sample]['T_HOT_C']
-        X_spatial = pod_manager.X_spatials[sample, ...]
-        X_temporal = pod_manager.X_temporals[sample, ...]
-        X_s = pod_manager.X_s[sample, ...]
-        coord = pod_manager.coords[sample]
-
-        # Crate a data structure
-        bc = BoundaryCondition(m_c, m_h, T_c, T_h)
-        pod = PodFeatures(coord=coord, X_spatial=X_spatial, X_temporal=X_temporal, X_s=X_s)
-
-        walls = {}
-        for theta_deg in theta_degs:
-            T_wall = pod_manager.T_walls[str(theta_deg)]['T_wall']
-            loc_index =pod_manager.T_walls[str(theta_deg)]['loc_index']
-            wall = Wall(theta_deg=theta_deg, loc_index=loc_index, temperature=T_wall)
-            walls[str(theta_deg)] = wall
-        samples.append(Sample(name=str(sample), bc=bc, pod=pod, walls=walls))
-    return samples
-
-@dataclass
-class PodModes1DDescriptors:
-    singular: np.ndarray
-    spatial: np.ndarray
-    # temporal: np.ndarray
-
-def process_pod_to_1D_Descriptors(sample: Sample, theta_deg: float):
-    loc_index = sample.walls[str(theta_deg)].loc_index
-    spatial_array = np.linalg.norm(sample.pod.X_spatial[:, :, loc_index], axis=1)
-    return PodModes1DDescriptors(
-        singular = sample.pod.X_s,
-        spatial = spatial_array
-        # temporals = 
-    )
 
 class PodCoherentStrength(FeatureProcessor):
     def __init__(self, feature_config):
@@ -198,7 +193,9 @@ class PodCoherentStrength(FeatureProcessor):
         return samples
 
     def get_structure_tables(self) -> pd.DataFrame:
-        """ """
+        """ 
+        The pod modes are converted into series of pod features
+        """
         # search for the case that mathces input
         N_modes = self.feature_config.N_modes
         features_placeholder=[]
@@ -222,6 +219,10 @@ class PodCoherentStrength(FeatureProcessor):
         # Create dataframe
         structure_table = pd.concat(features_placeholder, ignore_index=True)
         return structure_table
+
+    def compose_temporal_matrix(self, samples: list[Sample]) -> np.ndarray:
+        return np.array([sample.pod.X_temporal for sample in samples])
+
 
 
 class CoherentStrength_drep(FeatureProcessor):

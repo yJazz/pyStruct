@@ -1,44 +1,33 @@
-import pytest
 from dataclasses import dataclass
 from pyStruct.machines.feature_processors import PodCoherentStrength
 from pyStruct.machines.datastructures import *
 
-@dataclass
-class FeatureConfig:
-    workspace: str
-    N_trains: int
-    N_t: int
-    N_modes: int
-    normalize_y: bool
-    theta_degs: list[float]
 
-@pytest.fixture
-def fp():
-    feature_config = FeatureConfig(
-        workspace=r'F:\project2_phD_bwrx\db_bwrx_aggregation\workspace\4ff1b3520e44de10cea74136b19eb307',
-        N_trains=15,
-        N_t=1000,
-        N_modes=20,
-        normalize_y=False,
-        theta_degs=[0, 5, 10, 15]
-    )
-    return PodCoherentStrength(feature_config)
-
-@pytest.fixture
-def bc():
-    return BoundaryCondition(m_c=538.8279, m_h=3.72136, T_c=34.95, T_h=88.13)
-
-@pytest.fixture
-def non_exist_bc():
-    return BoundaryCondition(m_c=538.8279, m_h=3.72136, T_c=34.95, T_h=8)
 
 
 # ======================================================
-def test_1_collect_samples(fp):
-    samples = fp.samples
+def test_1_collect_samples(feature_processor):
+    samples = feature_processor.samples
     assert isinstance(samples[0], Sample)
 
-def test_2_get_structure_inputs(fp):
+def test_2_get_structure_inputs(feature_processor):
     # correct bc
-    structuer_table = fp.get_structure_tables()
-    print(structuer_table)
+    structure_table = feature_processor.get_structure_tables()
+    structure_table.to_csv('structure_table.csv', index=False)
+    # print(structure_table)
+
+def test_3_compose_temporal_matrix(feature_processor):
+    samples = feature_processor.training_samples
+    assert isinstance(samples[0] , Sample)
+    X_samples = feature_processor.compose_temporal_matrix(samples)
+    N_modes = feature_processor.feature_config.N_modes
+    N_t = feature_processor.feature_config.N_t
+    assert X_samples.shape == (len(samples), N_modes, N_t)
+
+def test_4_get_temporal_signals_outputs(feature_processor):
+    theta_deg = 0
+    samples = feature_processor.training_samples
+    print(samples[0].walls[f'{theta_deg:.2f}'].temperature.shape)
+    y_samples = feature_processor.get_temporal_signals_outputs(samples, theta_deg=0)
+    N_t = feature_processor.feature_config.N_t
+    assert y_samples.shape ==(len(samples), N_t)

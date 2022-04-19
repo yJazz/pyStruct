@@ -6,7 +6,7 @@ import pandas as pd
 class BoundaryCondition:
     m_c: float
     m_h: float
-    T_c: float
+    T_c: float 
     T_h: float
     vel_ratio: float = field(init=False)
 
@@ -17,11 +17,14 @@ class BoundaryCondition:
         return getattr(self, item)
 
     def __eq__(self, other):
-        cond_1 = abs(self.m_c - other.m_c) < 1E-3
-        cond_2 = abs(self.m_h - other.m_h) < 1E-3
-        cond_3 = abs(self.T_c - other.T_c) < 1E-3
-        cond_4 = abs(self.T_h - other.T_h) < 1E-3
-        return all([cond_1, cond_2, cond_3, cond_4])
+        names = self.__annotations__.keys()
+        return all([abs(self[name] - other[name]) < 1E-3 for name in names])
+    
+    def array(self, names: list[str] = None) -> np.array:
+        if not names:
+            names = self.__annotations__.keys()
+        return np.array([self[name] for name in names]).reshape(1, len(names))
+        
 
 
 
@@ -61,3 +64,19 @@ class Sample:
     bc: BoundaryCondition
     pod: PodFeatures
     walls: list[dict[str, Wall]]
+    weights_optimized: list[dict[str, np.ndarray]] = field(default_factory=lambda: {})
+    walls_optimized: list[dict[str, np.ndarray]] = field(default_factory=lambda: {})
+    # weights_pred: list[dict[str, np.ndarray]] = field(default_factory=dict)
+    # walls_pred: list[dict[str, np.ndarray]] = field(default_factory=dict)
+    
+    def record_optimize(self, theta_deg: float, weights:np.ndarray, y_optm: np.ndarray):
+        self.weights_optimized[f'{theta_deg:.2f}'] = weights
+        self.walls_optimized[f'{theta_deg:.2f}'] = y_optm 
+        return
+
+    def record_prediction(self, theta_deg: float, weights:np.ndarray, y_pred: np.ndarray):
+        self.weights_pred[f'{theta_deg:.2f}'] = weights
+        self.walls_pred[f'{theta_deg:.2f}'] = y_pred 
+        return
+
+

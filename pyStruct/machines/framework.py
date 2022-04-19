@@ -12,6 +12,7 @@ from pyStruct.machines.feature_processors import *
 from pyStruct.machines.optimizers import *
 from pyStruct.machines.regressors import *
 from pyStruct.machines.structures import *
+from pyStruct.machines.reconstructors import *
 
 
 FEATURE_PROCESSORS = {
@@ -36,40 +37,117 @@ STRUCTURE_PREDICTORS = {
     'GB': GBLookupStructure,
     'BAYESIAN': BayesianLookupStructure
 }
+RECONSTRUCTORS = {
+    'LINEAR': LinearReconstruction,
+}
 
 
 class TwoMachineFramework:
     def __init__(self, config):
         # initialize the machines
-        self.feature_processor = FEATURE_PROCESSORS[config.machines.feature_processor.upper()]
-        self.optimizer = OPTIMIZERS[config.machines.optimizer.upper()]
-        self.structure_predictor = STRUCTURE_PREDICTORS[config.machines.structure_predictor.upper()]
+        self.config = config
+
+        # Feature processor 
+        self.feature_processor = FEATURE_PROCESSORS[config.machines.feature_processor.upper()](config.features)
+        self.structure_library = self.feature_processor.get_structure_tables()
+
+        # Structure predictor
+        self.structure_predictor = STRUCTURE_PREDICTORS[config.machines.structure_predictor.upper()](config.structures, self.structure_library)
+
+        # Optimization
+        self.optimizer = OPTIMIZERS[config.machines.optimizer.upper()]()
+
+        # Predict weights
         self.weights_predictor = WEIGHTS_PREDICTORS[config.machines.weights_predictor.upper()]
+
+        # Reconstructor
+        self.reconstructor = RECONSTRUCTORS[config.machines.reconstructor.upper()]()
         
     def _train_structure(self):
-        structure_table = self.feature_processor.get_structure_tables()
-        structure_predictions = self.structure_predictor.train(structure_table)
-
+        # Specify save folder
+        to_folder = Path(self.config.paths.save_to)/'structure_predictor'
+        to_folder.mkdir(parents=True, exist_ok=True)
+        self.structure_predictor.set_model_path(to_folder)
+        
+        if self.structure_predictor.save_to.exists():
+            self.structure_predictor.load()
+        else:
+            # get table and train
+            self.structure_predictor.train()
+            self.structure_predictor.save()
+        return
     
+    def _validate_structure(self):
+        # Specify save folder
+        to_folder = Path(self.config.paths.save_to)/'structure_predictor'
+        to_folder.mkdir(parents=True, exist_ok=True)
+        self.structure_predictor.set_model_path(to_folder)
+
+        # load model
+        self.structure_predictor.load()
+
+        training_bcs = [sample.bc for sample in self.feature_processor.training_samples]
+        for bc in training_bcs:
+            print(f'\n-----training bc: {bc}----\n')
+            predictions = self.structure_predictor.predict(bc)
+            for mode in range(len(predictions)):
+                print(f'pred, mode {mode}: {predictions[mode].bc}')
+    
+    def _optimize(self):
+        # Specify folder 
+        to_folder = Path(self.config.paths.save_to)/'optimization'
+        to_folder.mkdir(parents=True, exist_ok=True)
+        records = pd.DataFrame()
+
+        # Decoupled method: this part is independent of the structure prediction
+        # compose temporal matrix
+        # by training samples
+        samples = self.feature_processor.training_samples
+        for sample in samples:
+            for theta_deg in self.config.features.theta_degs:
+                # Construct X, y 
+                X = sample.pod.X_temporal
+                y = sample.walls[f'{theta_deg:.2f}'].temperature
+                # Optimize
+                weights = self.optimizer.optimize(X, y)
+                # Keep record
+                record= {'sample':sample.name, 'theta_deg':theta_deg}
+                for mode, w in enumerate(weights):
+                    record[f'w{mode}'] = w
+                records = pd.concat([records, pd.DataFrame(record, index=[0])], ignore_index=True)
+        
+        records.to_csv(to_folder/'optimization.csv', index=False)
+        return
+
+    def validate_optimize(self) -> list[Sample]:
+        # Read table
+        to_folder = Path(self.config.paths.save_to)/'optimization'
+        records = pd.read_csv(to_folder/'optimization.csv')
+        # TODO: Error check
+        samples = self.feature_processor.training_samples
+        for sample in samples:
+            for theta_deg in self.config.features.theta_degs:
+                record = records[(records['sample'] == sample.name) & (records['theta_deg'] == theta_deg)]
+                weights = record[[f'w{mode}' for mode in range(self.config.features.N_modes)]].values
+                X = sample.pod.X_temporal
+                y_optm = self.reconstructor.reconstruct(X, weights)
+                sample.record_optimize(theta_deg, weights, y_optm)
+        return samples
+        
     def train(self):
         # Train Structure
         self._train_structure()
 
-        # todo: valiation: 
+        # Valiation: 
+        self._validate_structure()
         # compare structure_targets and structure_predictions
 
         # Train Weights
         # optimize 
-        temporal_signals_inputs = self.feature_processor.compose_temporal(structure_targets)
-        temperature = self.feature_processor.get_temporal_signals_outputs()
-        weights_targets = self.optimizer.optimize(temporal_signals_inputs, temperature)
+        self._optimize()
 
-        # todo: valiation: 
-        # compare temperature and weights_predictions
-
-
-        weights_inputs = structure_targets
-        weights_predictions = self.weights_predictor(weights_inputs, weights_targets)
+        # weights_inputs = structure_features
+        # weights_predictions = self.weights_predictor.train(weights_inputs, weights_targets)
 
         # todo: valiation: 
         # compare weights_targets and weights_predictions

@@ -24,6 +24,12 @@ class FeaturesParam:
     normalize_y: bool
     theta_degs: list[float]
 
+@dataclass
+class StructureParam:
+    x_labels: list[str]
+    y_labels: list[str]
+
+
 # -------- 
 
 @dataclass
@@ -32,11 +38,13 @@ class Machines:
     optimizer: str
     structure_predictor: str
     weights_predictor: str
+    reconstructor: str
 
 @dataclass
 class TwoMachineConfig:
     paths: Paths
     # signac: SignacStatepoint
-    features: FeaturesParam
     machines: Machines
+    features: FeaturesParam
+    structures: StructureParam
 

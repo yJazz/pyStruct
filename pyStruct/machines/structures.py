@@ -1,59 +1,191 @@
+from dataclasses import dataclass, field
 from pathlib import Path
 import pickle
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 import seaborn as sns
 sns.set_style("whitegrid")
-import matplotlib.pyplot as plt
 from typing import Protocol
 
-from sklearn.preprocessing import LabelEncoder, StandardScaler
-from sklearn.multioutput import MultiOutputRegressor
 
+from sklearn.preprocessing import StandardScaler
+from sklearn.multioutput import MultiOutputRegressor
 from sklearn.pipeline import Pipeline
 from sklearn.model_selection import cross_validate
 from sklearn.metrics import mean_squared_error
 from sklearn import ensemble
 
-import arviz as az 
-import pymc3 as pm
-import scipy.stats as stats
-from theano import shared
-from sklearn.preprocessing import StandardScaler
 
-import sys
 from pyStruct.data.dataset import read_pickle
+from pyStruct.machines.errors import LabelNotInStructureTable, StructureModelNoneExist, ModelPathNotFound
+from pyStruct.machines.datastructures import BoundaryCondition
 
 
-
-def visualize_libray_matrix(sps, m_c, vel_ratio, theta_deg):
-    library_matrix = np.zeros((20, 20))
-    for mode in range(20):
-        m = sps[mode].get_mode_deterministic_from_library(mode, m_c, vel_ratio, theta_deg)
-        sample = int(m['sample'])
-        library_matrix[sample, mode] = 1
-        
-        
-    fig, ax = plt.subplots(figsize=(8,4)) 
-    sns.heatmap(library_matrix, cmap='RdPu', vmin=0, vmax=1)
-    plt.xlabel("Tempoeral Mode")
-    plt.ylabel("Training ID")
-    plt.title("Inlet: $m_h$=%.2lf, $m_c$=%.2lf  kg/s"%(m_c/vel_ratio, m_c))
-    plt.show(block=False)
-    return 
-
-class StructurePredictor:
-    def train(self):
+class Model(Protocol):
+    """ A protocol """
+    def fit(self):
         pass
+
+class Normalizer(Protocol):
+    """ A normalizer protocol"""
+    def fit_transform(self):
+        pass
+
+class StructXyPairs:
+    def __init__(self, features: np.ndarray, targets: np.ndarray):
+        self.features = features
+        self.targets = targets
+
+
+@dataclass
+class StructPred:
+    bc: BoundaryCondition
+    mode: int
+
+def get_probability_by_distance(predicted_features:np.ndarray, target_features:np.ndarray):
+    distance = np.linalg.norm(target_features.to_numpy()-predicted_features, axis=1)
+    prob = 1/distance / sum(1/distance)
+    return prob
+
+def find_corresponding_mode(
+    predicted_features: np.ndarray, 
+    mode:int, 
+    feature_names: list[str],
+    structure_library: pd.DataFrame,
+    ) -> StructPred:
+    """ Find the matched component"""
+    target_features = structure_library[structure_library['mode'] == mode][feature_names]
+    idx = target_features.index
+    prob = get_probability_by_distance(predicted_features, target_features)
+    target_id = idx[prob.argmin()]
+
+    keys = BoundaryCondition.__annotations__.keys()
+    bc_values = structure_library.loc[target_id, keys].values[:-1]
+    bc = BoundaryCondition(*bc_values)
+    mode = structure_library.loc[target_id, 'mode']
+    return StructPred(bc=bc, mode=mode)
+
+
+
+
+
+class StructurePredictorInterface:
+    def set_model_path(self, to_folder: Path) ->None:
+        raise NotImplementedError()
+    
+    def _check_labels(self, structure_table: pd.DataFrame)->None:
+        """ The labels """
+        raise NotImplementedError()
+
+    def create_model(self):
+        raise NotImplementedError()
+
+    def train(self, structure_table: pd.DataFrame) -> None:
+        raise NotImplementedError()
+    
+    def save(self, save_to: str) -> None: 
+        raise NotImplementedError()
+
     def load(self):
-        pass
-    def predict(self):
-        pass
-    def predict_and_compose(self):
-        pass
+        raise NotImplementedError()
+
+    def predict(self, bc: BoundaryCondition) -> np.ndarray:
+        raise NotImplementedError()
+
+class GeneralPredictor(StructurePredictorInterface):
+    def __init__(self, structure_config: dict, structure_library: pd.DataFrame):
+        self._structure_config = structure_config
+        self._structure_library = structure_library
+        # Initiate model and norm
+        self._norm = StandardScaler()
+        self._models = []
+
+    def _check_labels(self, x_labels: dict, y_labels: dict, structure_table: pd.DataFrame) -> None:
+        """ Make sure the x_labels and y_labels are in structure table"""
+        # Check x
+        if not all(item in structure_table.keys() for item in x_labels):
+            raise LabelNotInStructureTable(
+                message = f" Check the y label. The strubure_table keys are: {structure_table.keys()}"
+            )
+        # Check y
+        if not all(item in structure_table.keys() for item in y_labels):
+            raise LabelNotInStructureTable(
+                message = f" Check the x label. The strubure_table keys are: {structure_table.keys()}"
+            )
+        return
+        
+    def train(self) -> None:
+        """  """
+        self._check_labels(self._structure_config.x_labels, self._structure_config.y_labels, self._structure_library)
+        array_features = self._norm.fit_transform(self._structure_library[self._structure_config.x_labels])
+        array_targets = self._structure_library[self._structure_config.y_labels].to_numpy()
+        xy_pairs =StructXyPairs(array_features, array_targets)
+
+        # train 
+        N_modes = len(self._structure_library['mode'].unique())
+        for mode in range(N_modes):
+            print(f'train structure predictor mode {mode}')
+            bool_filter = self._structure_library['mode'] == mode
+            x = array_features[bool_filter, :]
+            y = array_targets[bool_filter, :]
+
+            model = self.create_model()
+            model.fit(x, y)
+            self._models.append(model)
+        return
+
+    def save(self) -> None:
+        if hasattr(self, 'save_to'):
+            with open(self.save_to, 'wb') as f:
+                pickle.dump((self._models, self._norm), f)
+        else:
+            raise ModelPathNotFound("Need to initate `set_model_path`")
+
+    def load(self) -> None:
+        if hasattr(self, 'save_to'):
+            with open(self.save_to, 'rb') as f:
+                self._models, self._norm = pickle.load(f)
+        else:
+            raise ModelPathNotFound("Need to initate `set_model_path`")
 
 
-class GBLookupStructure(StructurePredictor):
+
+class GBLookupStructure(GeneralPredictor):
+    def __init__(self, structure_config, structure_library):
+        super(GBLookupStructure, self).__init__(structure_config, structure_library)
+        self.params = {
+            'n_estimators': 100, 
+            'max_depth': 7, 
+            'min_samples_split': 2, 
+            'min_samples_leaf': 1 
+            }
+
+    def set_model_path(self, to_folder: Path):
+        to_folder.mkdir(parents=True, exist_ok=True)
+        self.save_to = to_folder / 'GB.pkl'
+    
+    def create_model(self):
+        return MultiOutputRegressor(ensemble.GradientBoostingRegressor(**self.params))
+
+    def predict(self, bc: BoundaryCondition) -> list[StructPred]:
+        x = bc.array(self._structure_config.x_labels)
+        if len(self._models)  == 0:
+            raise StructureModelNoneExist("no models exist. Train structure first.")
+        else:
+            x = self._norm.transform(x)
+            predictions = [find_corresponding_mode(
+                    model.predict(x).flatten(), 
+                    mode,
+                    self._structure_config.y_labels,
+                    self._structure_library
+            ) for mode, model in enumerate(self._models)]
+        return  predictions
+
+
+
+
+class GBLookupStructure_depr(GeneralPredictor):
     """ Given x_labels, output y_labels
         stratified by modes: each mode: a regression model
     """
@@ -246,11 +378,17 @@ class GBLookupStructure(StructurePredictor):
         return prob 
             
 
-class BayesianLookupStructure(StructurePredictor):
+class BayesianLookupStructure(GeneralPredictor):
     def __init__(
         self, 
         config:dict,
         ):
+
+        import arviz as az 
+        import pymc3 as pm
+        import scipy.stats as stats
+        from theano import shared
+        from sklearn.preprocessing import StandardScaler
         self.config = config
         self.var_names = config['x_labels']
         self.target_name = 'singular'
