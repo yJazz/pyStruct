@@ -9,9 +9,16 @@ class ModelPathNotFound(FileNotFoundException):
     def __init__(self, message):
         super(ModelPathNotFound, self).__init__(message)
 
+#--------------------- Data structures --------------------------------
+class DataError(PyStructException):
+    ...
+
+class DataNotExist(DataError):
+    def __init__(self, message=''):
+        super(DataNotExist, self).__init__(message)
 
 
-# ---------------------------------------------
+# --------------------- Feature Processor------------------------
 class FeatureProcessorException(PyStructException):
     ...
 

@@ -23,6 +23,8 @@ class FeaturesParam:
     N_dim: int
     normalize_y: bool
     theta_degs: list[float]
+    x_labels: list[str]
+    y_labels: list[str]
 
 @dataclass
 class StructureParam:

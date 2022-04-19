@@ -13,6 +13,7 @@ from pyStruct.machines.optimizers import *
 from pyStruct.machines.regressors import *
 from pyStruct.machines.structures import *
 from pyStruct.machines.reconstructors import *
+from pyStruct.machines.datastructures import PodSampleSet
 
 
 FEATURE_PROCESSORS = {
@@ -42,17 +43,55 @@ RECONSTRUCTORS = {
 }
 
 
+
+def initialize_samples(workspace, theta_degs, normalize_y):
+    """ A messy code... should refactor later"""
+    samples = []
+
+    pod_manager = PodModesManager(name='', workspace=workspace, normalize_y=normalize_y)
+    bcs = pod_manager._read_signac()
+    for sample in range(pod_manager.N_samples):
+        m_c = bcs[sample]['M_COLD_KGM3S']
+        m_h = bcs[sample]['M_HOT_KGM3S']
+        T_c = bcs[sample]['T_COLD_C']
+        T_h = bcs[sample]['T_HOT_C']
+
+        X_spatial = pod_manager.X_spatials[sample, ...]
+        X_temporal = pod_manager.X_temporals[sample, ...]
+        X_s = pod_manager.X_s[sample, ...]
+        coord = pod_manager.coords[sample]
+        # pod = PodFeatures(coord=coord, X_spatial=X_spatial, X_temporal=X_temporal, X_s=X_s)
+
+        for theta_deg in theta_degs:
+            T_wall = pod_manager.T_walls[f'{theta_deg:.2f}']['T_wall'][sample, :]
+            loc_index =pod_manager.T_walls[f'{theta_deg:.2f}']['loc_index']
+            bc = BoundaryCondition(m_c, m_h, T_c, T_h, theta_deg)
+            s = PodSample(bc, loc_index, T_wall)
+            s.set_pod(X_spatial, X_temporal, X_s, coord)
+            samples.append(s)
+    return samples
+
+
 class TwoMachineFramework:
     def __init__(self, config):
         # initialize the machines
         self.config = config
 
+        # initialize samples
+        self.samples = initialize_samples(
+            config.features.workspace, 
+            config.features.theta_degs,
+            config.features.normalize_y
+            )
+        self.training_samples = PodSampleSet(self.samples[:self.config.features.N_trains])
+        self.testing_samples = PodSampleSet(self.samples[self.config.features.N_trains:])
+
         # Feature processor 
         self.feature_processor = FEATURE_PROCESSORS[config.machines.feature_processor.upper()](config.features)
-        self.structure_library = self.feature_processor.get_structure_tables()
+        self.feature_processor.process_samples(self.training_samples)
 
         # Structure predictor
-        self.structure_predictor = STRUCTURE_PREDICTORS[config.machines.structure_predictor.upper()](config.structures, self.structure_library)
+        self.structure_predictor = STRUCTURE_PREDICTORS[config.machines.structure_predictor.upper()](config.structures)
 
         # Optimization
         self.optimizer = OPTIMIZERS[config.machines.optimizer.upper()]()
@@ -72,8 +111,8 @@ class TwoMachineFramework:
         if self.structure_predictor.save_to.exists():
             self.structure_predictor.load()
         else:
-            # get table and train
-            self.structure_predictor.train()
+            # Get x y pairs and train
+            self.structure_predictor.train(self.training_samples)
             self.structure_predictor.save()
         return
     
@@ -86,12 +125,13 @@ class TwoMachineFramework:
         # load model
         self.structure_predictor.load()
 
-        training_bcs = [sample.bc for sample in self.feature_processor.training_samples]
+        training_bcs = [sample.bc for sample in self.training_samples.samples]
         for bc in training_bcs:
             print(f'\n-----training bc: {bc}----\n')
-            predictions = self.structure_predictor.predict(bc)
-            for mode in range(len(predictions)):
-                print(f'pred, mode {mode}: {predictions[mode].bc}')
+            predicted_samples = self.structure_predictor.predict(bc, self.training_samples)
+            for mode in range(len(predicted_samples)):
+                print(predicted_samples[mode].name)
+                # TODO
     
     def _optimize(self):
         # Specify folder 
@@ -119,7 +159,7 @@ class TwoMachineFramework:
         records.to_csv(to_folder/'optimization.csv', index=False)
         return
 
-    def validate_optimize(self) -> list[Sample]:
+    def validate_optimize(self) -> list[PodSample]:
         # Read table
         to_folder = Path(self.config.paths.save_to)/'optimization'
         records = pd.read_csv(to_folder/'optimization.csv')
@@ -133,6 +173,9 @@ class TwoMachineFramework:
                 y_optm = self.reconstructor.reconstruct(X, weights)
                 sample.record_optimize(theta_deg, weights, y_optm)
         return samples
+
+    def _train_weights(self):
+        sampels = self.feature_processor
         
     def train(self):
         # Train Structure

@@ -13,6 +13,8 @@ features:
   N_trains: 15
   normalize_y: False
   theta_degs: [0]
+  x_labels: ['m_c', 'vel_ratio']
+  y_labels: ['singular',  'spatial']
 
 machines:
   feature_processor: COHERENT_STRENGTH
@@ -22,5 +24,5 @@ machines:
   reconstructor: LINEAR
 
 structures:
-  x_labels: ['m_c', 'vel_ratio']
+  x_labels: ['m_c', 'm_h', 'T_c', 'T_h', 'theta_deg']
   y_labels: ['singular',  'spatial']

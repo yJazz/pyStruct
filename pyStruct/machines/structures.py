@@ -19,7 +19,7 @@ from sklearn import ensemble
 
 from pyStruct.data.dataset import read_pickle
 from pyStruct.machines.errors import LabelNotInStructureTable, StructureModelNoneExist, ModelPathNotFound
-from pyStruct.machines.datastructures import BoundaryCondition
+from pyStruct.machines.datastructures import BoundaryCondition, PodSample, PodSampleSet
 
 
 class Model(Protocol):
@@ -44,27 +44,33 @@ class StructPred:
     mode: int
 
 def get_probability_by_distance(predicted_features:np.ndarray, target_features:np.ndarray):
-    distance = np.linalg.norm(target_features.to_numpy()-predicted_features, axis=1)
+    distance = np.linalg.norm(target_features-predicted_features, axis=1)
     prob = 1/distance / sum(1/distance)
     return prob
 
-def find_corresponding_mode(
+
+def find_corresponding_sample_depr(
     predicted_features: np.ndarray, 
-    mode:int, 
-    feature_names: list[str],
-    structure_library: pd.DataFrame,
+    ref_targets: np.ndarray,
+    ref_features: np.ndarray
     ) -> StructPred:
     """ Find the matched component"""
-    target_features = structure_library[structure_library['mode'] == mode][feature_names]
-    idx = target_features.index
-    prob = get_probability_by_distance(predicted_features, target_features)
-    target_id = idx[prob.argmin()]
+    prob = get_probability_by_distance(predicted_features, ref_targets)
+    sample_id = prob.argmin()
 
-    keys = BoundaryCondition.__annotations__.keys()
-    bc_values = structure_library.loc[target_id, keys].values[:-1]
-    bc = BoundaryCondition(*bc_values)
-    mode = structure_library.loc[target_id, 'mode']
-    return StructPred(bc=bc, mode=mode)
+    return ref_features[sample_id, :]
+
+def find_corresponding_sample(
+    predicted_features: np.ndarray, 
+    mode: int,
+    sample_set: PodSampleSet,
+    ): 
+    # get all samples' ref_features
+    # ref_features with shape: (N_samples, N_features)
+    ref_features = sample_set.flow_features.descriptors[:, mode, :]
+    prob = get_probability_by_distance(predicted_features, ref_features)
+    sample_id = prob.argmin()
+    return sample_set.samples[sample_id]
 
 
 
@@ -93,10 +99,10 @@ class StructurePredictorInterface:
     def predict(self, bc: BoundaryCondition) -> np.ndarray:
         raise NotImplementedError()
 
+
 class GeneralPredictor(StructurePredictorInterface):
-    def __init__(self, structure_config: dict, structure_library: pd.DataFrame):
+    def __init__(self, structure_config: dict):
         self._structure_config = structure_config
-        self._structure_library = structure_library
         # Initiate model and norm
         self._norm = StandardScaler()
         self._models = []
@@ -114,22 +120,23 @@ class GeneralPredictor(StructurePredictorInterface):
                 message = f" Check the x label. The strubure_table keys are: {structure_table.keys()}"
             )
         return
-        
-    def train(self) -> None:
-        """  """
-        self._check_labels(self._structure_config.x_labels, self._structure_config.y_labels, self._structure_library)
-        array_features = self._norm.fit_transform(self._structure_library[self._structure_config.x_labels])
-        array_targets = self._structure_library[self._structure_config.y_labels].to_numpy()
-        xy_pairs =StructXyPairs(array_features, array_targets)
+    
 
+    def train(self, training_samples: PodSampleSet) -> None:
+        # For every sample in training samples
+        # Extract the scalars (descriptors) as targets
+        # The boundary conditions are the features
+        X = training_samples.bc(self._structure_config.x_labels)
+        y = training_samples.flow_features.descriptors
+
+        array_features = self._norm.fit_transform(X)
+        array_targets = y
         # train 
-        N_modes = len(self._structure_library['mode'].unique())
+        N_modes = y.shape[1]
         for mode in range(N_modes):
             print(f'train structure predictor mode {mode}')
-            bool_filter = self._structure_library['mode'] == mode
-            x = array_features[bool_filter, :]
-            y = array_targets[bool_filter, :]
-
+            x = array_features
+            y = array_targets[:, mode, :]
             model = self.create_model()
             model.fit(x, y)
             self._models.append(model)
@@ -148,12 +155,11 @@ class GeneralPredictor(StructurePredictorInterface):
                 self._models, self._norm = pickle.load(f)
         else:
             raise ModelPathNotFound("Need to initate `set_model_path`")
-
-
+    
 
 class GBLookupStructure(GeneralPredictor):
-    def __init__(self, structure_config, structure_library):
-        super(GBLookupStructure, self).__init__(structure_config, structure_library)
+    def __init__(self, structure_config):
+        super(GBLookupStructure, self).__init__(structure_config)
         self.params = {
             'n_estimators': 100, 
             'max_depth': 7, 
@@ -168,19 +174,18 @@ class GBLookupStructure(GeneralPredictor):
     def create_model(self):
         return MultiOutputRegressor(ensemble.GradientBoostingRegressor(**self.params))
 
-    def predict(self, bc: BoundaryCondition) -> list[StructPred]:
+    def predict(self, bc: BoundaryCondition, training_set: PodSampleSet) -> list[PodSample]:
         x = bc.array(self._structure_config.x_labels)
         if len(self._models)  == 0:
             raise StructureModelNoneExist("no models exist. Train structure first.")
         else:
             x = self._norm.transform(x)
-            predictions = [find_corresponding_mode(
+            predicted_samples = [find_corresponding_sample(
                     model.predict(x).flatten(), 
                     mode,
-                    self._structure_config.y_labels,
-                    self._structure_library
+                    training_set,
             ) for mode, model in enumerate(self._models)]
-        return  predictions
+        return  predicted_samples
 
 
 

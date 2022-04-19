@@ -1,61 +1,50 @@
+import pytest
 from pathlib import Path
+import numpy as np
 import shutil 
 import pandas as pd
-from pyStruct.machines.datastructures import BoundaryCondition
-from pyStruct.machines.structures import GBLookupStructure, find_corresponding_mode
+from pyStruct.machines.datastructures import BoundaryCondition, PodSampleSet, PodSample
+from pyStruct.machines.structures import GBLookupStructure, find_corresponding_sample
 from pyStruct.machines.errors import LabelNotInStructureTable, StructureModelNoneExist, ModelPathNotFound
 
+@pytest.fixture
+def samples_with_features(samples):
+    for sample in samples:
+        sample.set_flowfeatures(time_series=np.random.rand(2,10), descriptors=np.random.rand(2,4))
+    return samples
 
-# def test_1_create_model(good_structure_config):
-#     structure_library = pd.read_csv('tests/test_data/structure_table.csv')
-#     gb_structure = GBLookupStructure(good_structure_config, structure_library)
-#     model = gb_structure.create_model()
-#     assert hasattr(model, 'fit')
+def test_1_create_model(good_structure_config):
+    gb_structure = GBLookupStructure(good_structure_config)
+    model = gb_structure.create_model()
+    assert hasattr(model, 'fit')
 
-# def test_2_check_labels(bad_structure_config):
-#     structure_library = pd.read_csv('tests/test_data/structure_table.csv')
-#     machine = GBLookupStructure(bad_structure_config, structure_library)
-#     try:
-#         machine._check_labels(bad_structure_config.x_labels, bad_structure_config.y_labels, structure_library)
-#     except LabelNotInStructureTable:
-#         print("check label is captured")
-#     except:
-#         assert False
-
-# def test_3_train(good_structure_config):
-#     structure_library = pd.read_csv('tests/test_data/structure_table.csv')
-#     machine = GBLookupStructure(good_structure_config, structure_library)
-#     machine.train(structure_library)
+def test_2_train(good_structure_config, samples_with_features):
+    machine = GBLookupStructure(good_structure_config)
+    machine.train(PodSampleSet(samples_with_features))
     
-# def test_4_predict_without_model(good_structure_config):
-#     structure_library = pd.read_csv('tests/test_data/structure_table.csv')
-#     machine = GBLookupStructure(good_structure_config, structure_library)
-#     m_c = structure_library.loc[0, 'm_c']
-#     m_h = structure_library.loc[0, 'm_h']
-#     T_c = structure_library.loc[0, 'T_c']
-#     T_h = structure_library.loc[0, 'T_h']
-#     bc = BoundaryCondition(m_c=m_c, m_h=m_h, T_c = T_c, T_h = T_h)
-#     try:
-#         machine.predict(bc)
-#     except StructureModelNoneExist:
-#         print("The Model None Exist is captured")
-#     except:
-#         assert False
+def test_3_predict_without_model(good_structure_config, samples):
+    
+    machine = GBLookupStructure(good_structure_config)
+    bc = samples[0].bc
+    try:
+        machine.predict(bc, PodSampleSet(samples))
+    except StructureModelNoneExist:
+        print("The Model None Exist is captured")
+    except:
+        assert False
 
-# def test_5_save(good_structure_config):
-#     structure_library = pd.read_csv('tests/test_data/structure_table.csv')
-#     machine = GBLookupStructure(good_structure_config, structure_library)
-#     # if not call `set_model_path` first
-#     try:
-#         machine.save()
-#     except ModelPathNotFound:
-#         pass
-#     except:
-#         assert False
+def test_4_save_but_no_path_ex_given(good_structure_config):
+    machine = GBLookupStructure(good_structure_config)
+    # if not call `set_model_path` first
+    try:
+        machine.save()
+    except ModelPathNotFound:
+        pass
+    except:
+        assert False
 
-def test_6_load(good_structure_config):
-    structure_library = pd.read_csv('tests/test_data/structure_table.csv')
-    machine = GBLookupStructure(good_structure_config, structure_library)
+def test_5_load(good_structure_config, samples_with_features):
+    machine = GBLookupStructure(good_structure_config)
     # if forget to specify the model path
     try:
         machine.load()
@@ -63,30 +52,27 @@ def test_6_load(good_structure_config):
         pass
     except:
         assert False
-
-
     # Specify the model path
     to_folder = Path(r'.')/'structure_predictor'
     machine.set_model_path(to_folder)
-    machine.train()
+
+    machine.train(PodSampleSet(samples_with_features))
     machine.save()
     machine.load()
     assert len(machine._models) != 0
     # clean up
     # shutil.rmtree(to_folder)
 
-    # machine.set_model_path(to_folder)
-    # machine.train()
+def test_6_predict(good_structure_config, samples_with_features):
+    machine = GBLookupStructure(good_structure_config)
+
+    to_folder = Path(r'.')/'structure_predictor'
+    machine.set_model_path(to_folder)
+
+    sample_set = PodSampleSet(samples_with_features)
+    machine.train(sample_set)
+
     # predict
-    m_c = structure_library.loc[0, 'm_c']
-    m_h = structure_library.loc[0, 'm_h']
-    T_c = structure_library.loc[0, 'T_c']
-    T_h = structure_library.loc[0, 'T_h']
-    bc = BoundaryCondition(m_c=m_c, m_h=m_h, T_c = T_c, T_h = T_h)
-    predictions = machine.predict(bc)
-
-def test_7_validate(good_structure_config):
-    structure_library = pd.read_csv('tests/test_data/structure_table.csv')
-    machine = GBLookupStructure(good_structure_config, structure_library)
-    machine._validate_structure()
-
+    bc = samples_with_features[0].bc
+    predictions = machine.predict(bc, sample_set)
+    assert all([isinstance(prediction, PodSample) for prediction in predictions])
