@@ -8,7 +8,7 @@ from hydra.errors import MissingConfigException
 from hydra.core.config_store import ConfigStore
 from omegaconf import DictConfig, OmegaConf
 from dataclasses import dataclass
-from pyStruct.machines.config import TwoMachineConfig
+from pyStruct.config import TwoMachineConfig
 from pyStruct.machines.framework import TwoMachineFramework
 from pyStruct.machines.feature_processors import FeatureProcessor
 from pyStruct.machines.optimizers import Optimizer
@@ -32,36 +32,30 @@ def test_1_init_machine(machine):
     assert issubclass(type(machine.feature_processor), FeatureProcessor)
     assert issubclass(type(machine.structure_predictor), GeneralPredictor)
     assert issubclass(type(machine.optimizer), Optimizer)
-    assert issubclass(machine.weights_predictor, WeightsPredictor)
+    assert issubclass(type(machine.weights_predictor), WeightsPredictor)
     assert issubclass(type(machine.reconstructor), ReconstructorInterface)
 
-def test_2_train_structure(machine):
+def test_2_train_structure_new_train(machine):
     # clear all data 
-    to_folder = Path(machine.config.paths.save_to)/'structure_predictor'
     try:
-        shutil.rmtree(to_folder)
+        shutil.rmtree(machine.paths.structure_predictor / 'model.pkl')
     except:
         pass
-
     # Retrain
     machine._train_structure()
+def test_3_train_structure_load(machine):
     # # Load
     machine._train_structure()
 
+def test_4_optimize(machine):
+    config = machine.config
+    N_samples = config.features.N_modes
+    assert all( [hasattr(sample, 'w_optm') is False for sample in machine.training_set.samples])
+    machine._optimize()
+    assert all( [hasattr(sample, 'w_optm') for sample in machine.training_set.samples])
+    assert machine.training_set.w_optm.shape == (len(machine.training_set.samples), N_samples)
 
-def test_3_validate_structure(machine):
-    machine._train_structure()
-    machine._validate_structure()
-
-# def test_4_optimize(machine):
-#     machine._optimize()
-
-# def test_5_validate_optimize(machine):
-#     samples = machine.validate_optimize()
-#     theta_deg = 0
-#     y_target = samples[0].walls[f'{theta_deg:.2f}'].temperature
-#     y_optm = samples[0].walls_optimized[f'{theta_deg:.2f}']
-#     print(f'target shape: {y_target.shape}')
-#     print(f'optm shape: {y_optm.shape}')
-
-#     assert y_target.shape== y_optm.shape
+def test_5_train_and_predict(machine):
+    machine.train()
+    sample = machine.training_set.samples[0]
+    machine.predict(sample.bc)

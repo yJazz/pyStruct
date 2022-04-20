@@ -14,8 +14,10 @@ class BoundaryCondition:
     T_c: float 
     T_h: float
     theta_deg: float
-    id: int = field(default_factory=count().__next__, init=False)
+    id: int = field(init=False)
 
+    def __post_init__(self):
+        self.id = f'{self.m_c/self.m_h:.1f}' 
 
     def __getitem__(self, item):
         return getattr(self, item)
@@ -42,17 +44,32 @@ class FlowFeatures:
     time_series: np.ndarray # shape: (N_mode, N_t)
     descriptors: np.ndarray # shape: (N_mode, N_features)
 
-# @dataclass
-# class Weights:
-#     optimize: np.ndarray # shape: (N_mode, 1)
-#     predict: np.ndarray # shape: (N_mode, 1)
-
 @dataclass
 class Temperature:
     theta_deg: float
     true: np.ndarray # shape: (N_t)
     pred: np.ndarray # shape: (N_t,)
     
+
+# ------- Sample --------------------------------
+class Sample:
+    def set_flowfeatures(self):
+        raise NotImplementedError()
+    
+    def set_pred_structures(self):
+        raise NotImplementedError()
+    
+    def set_pred_descriptors(self):
+        raise NotImplementedError()
+
+    def set_optimized_weights(self):
+        raise NotImplementedError()
+
+    def set_predicted_weights(self):
+        raise NotImplementedError()
+
+    def set_wall_pred(self):
+        raise NotImplementedError()
 
 
 class PodSample:
@@ -69,6 +86,12 @@ class PodSample:
 
     def set_flowfeatures(self, time_series: np.ndarray, descriptors: np.ndarray):
         self.flow_features = FlowFeatures(time_series, descriptors)
+    
+    def set_pred_structures(self, pred_structures_names: list[str]):
+        self.pred_structures_names = pred_structures_names
+    
+    def set_pred_descriptors(self, descriptors: np.ndarray):
+        self.pred_descriptors = descriptors
 
     def set_optimized_weights(self, weights: np.ndarray):
         self.w_optm = weights
@@ -91,27 +114,50 @@ class FlowFeatureSet:
     time_series:np.ndarray #shape: (N_samples, N_mode, N_t)
     descriptors:np.ndarray #shape: (Nsamples, N_mode, N_features)
 
-class WeightsSets:
-    pass
-class WallSets:
-    pass
-
-
 class PodSampleSet:
     def __init__(self, samples: list[PodSample]):
         self.samples = samples
 
     def bc(self, names: list[str]=None):
         return np.vstack([sample.bc.array(names) for sample in self.samples])
+    
+    @property
+    def name(self):
+        return [sample.name for sample in self.samples]
 
     @property
     def flow_features(self):
+        """
+        time_series shape: (N_samples, N_modes, N_t)
+        descriptors shape: (N_samples, N_modes, N_features)
+        """
         if any([hasattr(sample, 'flow_features') is False for sample in self.samples] ):
             raise DataNotExist("Need to process `flow_feature`")
         time_series = np.stack([sample.flow_features.time_series for sample in self.samples])
         descriptors = np.stack([sample.flow_features.descriptors for sample in self.samples])
         return FlowFeatureSet(time_series, descriptors)
     
-        
+    @property
+    def pred_structures_names(self):
+        if any([hasattr(sample, 'pred_structures_names') is False for sample in self.samples] ):
+            raise DataNotExist("Need to run `train_structures`")
+        return [sample.pred_structures_names for sample in self.samples]
+    
+    @property
+    def pred_descriptors(self):
+        """
+        shape (N_samples, N_modes, N_features)
+        """
+        if any([hasattr(sample, 'pred_descriptors') is False for sample in self.samples] ):
+            raise DataNotExist("")
+        return np.stack([sample.pred_descriptors for sample in self.samples])
+
+    
+    @property
+    def w_optm(self):
+        """ shape: (N_samples, N_modes, 1)"""
+        if any([hasattr(sample, 'w_optm') is False for sample in self.samples] ):
+            raise DataNotExist("Need to do optimization")
+        return np.stack([sample.w_optm for sample in self.samples])
 
 

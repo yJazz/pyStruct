@@ -8,7 +8,6 @@ import seaborn as sns
 sns.set_style("whitegrid")
 from typing import Protocol
 
-
 from sklearn.preprocessing import StandardScaler
 from sklearn.multioutput import MultiOutputRegressor
 from sklearn.pipeline import Pipeline
@@ -19,23 +18,9 @@ from sklearn import ensemble
 
 from pyStruct.data.dataset import read_pickle
 from pyStruct.machines.errors import LabelNotInStructureTable, StructureModelNoneExist, ModelPathNotFound
-from pyStruct.machines.datastructures import BoundaryCondition, PodSample, PodSampleSet
+from pyStruct.data.datastructures import BoundaryCondition, PodSample, PodSampleSet
 
 
-class Model(Protocol):
-    """ A protocol """
-    def fit(self):
-        pass
-
-class Normalizer(Protocol):
-    """ A normalizer protocol"""
-    def fit_transform(self):
-        pass
-
-class StructXyPairs:
-    def __init__(self, features: np.ndarray, targets: np.ndarray):
-        self.features = features
-        self.targets = targets
 
 
 @dataclass
@@ -44,7 +29,11 @@ class StructPred:
     mode: int
 
 def get_probability_by_distance(predicted_features:np.ndarray, target_features:np.ndarray):
-    distance = np.linalg.norm(target_features-predicted_features, axis=1)
+    norm = StandardScaler()
+    target_feature_norm = norm.fit_transform(target_features)
+    predicted_features_norm = norm.transform(predicted_features)
+    
+    distance = np.linalg.norm(predicted_features_norm-target_feature_norm, axis=1)
     prob = 1/distance / sum(1/distance)
     return prob
 
@@ -69,7 +58,7 @@ def find_corresponding_sample(
     # ref_features with shape: (N_samples, N_features)
     ref_features = sample_set.flow_features.descriptors[:, mode, :]
     prob = get_probability_by_distance(predicted_features, ref_features)
-    sample_id = prob.argmin()
+    sample_id = prob.argmax()
     return sample_set.samples[sample_id]
 
 
@@ -80,10 +69,6 @@ class StructurePredictorInterface:
     def set_model_path(self, to_folder: Path) ->None:
         raise NotImplementedError()
     
-    def _check_labels(self, structure_table: pd.DataFrame)->None:
-        """ The labels """
-        raise NotImplementedError()
-
     def create_model(self):
         raise NotImplementedError()
 
@@ -101,27 +86,6 @@ class StructurePredictorInterface:
 
 
 class GeneralPredictor(StructurePredictorInterface):
-    def __init__(self, structure_config: dict):
-        self._structure_config = structure_config
-        # Initiate model and norm
-        self._norm = StandardScaler()
-        self._models = []
-
-    def _check_labels(self, x_labels: dict, y_labels: dict, structure_table: pd.DataFrame) -> None:
-        """ Make sure the x_labels and y_labels are in structure table"""
-        # Check x
-        if not all(item in structure_table.keys() for item in x_labels):
-            raise LabelNotInStructureTable(
-                message = f" Check the y label. The strubure_table keys are: {structure_table.keys()}"
-            )
-        # Check y
-        if not all(item in structure_table.keys() for item in y_labels):
-            raise LabelNotInStructureTable(
-                message = f" Check the x label. The strubure_table keys are: {structure_table.keys()}"
-            )
-        return
-    
-
     def train(self, training_samples: PodSampleSet) -> None:
         # For every sample in training samples
         # Extract the scalars (descriptors) as targets
@@ -158,8 +122,11 @@ class GeneralPredictor(StructurePredictorInterface):
     
 
 class GBLookupStructure(GeneralPredictor):
-    def __init__(self, structure_config):
-        super(GBLookupStructure, self).__init__(structure_config)
+    def __init__(self, structure_config, folder: Path):
+        self._structure_config = structure_config
+        # Initiate model and norm
+        self._norm = StandardScaler()
+        self._models = []
         self.params = {
             'n_estimators': 100, 
             'max_depth': 7, 
@@ -167,25 +134,24 @@ class GBLookupStructure(GeneralPredictor):
             'min_samples_leaf': 1 
             }
 
-    def set_model_path(self, to_folder: Path):
-        to_folder.mkdir(parents=True, exist_ok=True)
-        self.save_to = to_folder / 'GB.pkl'
+        self.save_to = folder / 'model.pkl'
     
     def create_model(self):
         return MultiOutputRegressor(ensemble.GradientBoostingRegressor(**self.params))
 
-    def predict(self, bc: BoundaryCondition, training_set: PodSampleSet) -> list[PodSample]:
+    def predict(self, bc: BoundaryCondition, training_set: PodSampleSet) -> tuple[np.ndarray, list[PodSample]]:
         x = bc.array(self._structure_config.x_labels)
         if len(self._models)  == 0:
             raise StructureModelNoneExist("no models exist. Train structure first.")
         else:
             x = self._norm.transform(x)
+            predicted_descriptors = np.array([model.predict(x) for model in self._models])
             predicted_samples = [find_corresponding_sample(
-                    model.predict(x).flatten(), 
+                    predicted_descriptors[mode],
                     mode,
                     training_set,
-            ) for mode, model in enumerate(self._models)]
-        return  predicted_samples
+            ) for mode in range(len(self._models))]
+        return  predicted_descriptors, predicted_samples
 
 
 

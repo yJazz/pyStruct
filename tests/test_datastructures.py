@@ -1,7 +1,7 @@
 import pytest
 from dataclasses import dataclass
 from pyStruct.data.dataset import PodModesManager
-from pyStruct.machines.datastructures import *
+from pyStruct.data.datastructures import *
 
  
 def test_1_test_eq():
@@ -19,7 +19,7 @@ def test_1_test_eq():
 
 def test_1_PodSampleSet_get_bc(samples):
     sample_set = PodSampleSet(samples)
-    bc = sample_set.bc
+    bc = sample_set.bc()
     assert bc.shape == (len(samples), samples[0].bc.array().shape[-1])
 
 def test_2_PodSampleSet_get_flow_features(samples):

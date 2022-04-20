@@ -7,7 +7,7 @@ from scipy.fft import fft, fftfreq
 from typing import Protocol
 
 from pyStruct.data.dataset import PodModesManager, DmdModesManager
-from pyStruct.machines.datastructures import *
+from pyStruct.data.datastructures import *
  
 
 def process_pod_to_1D_Descriptors(sample: PodSample) -> np.ndarray:

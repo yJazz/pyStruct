@@ -10,10 +10,11 @@ features:
   N_t: 1000
   N_modes: 20
   N_dim: 4 # 4 columns
-  N_trains: 15
+  N_trains_percent: 80
   normalize_y: False
   theta_degs: [0]
-  x_labels: ['m_c', 'vel_ratio']
+
+  x_labels: ['m_c', 'm_h', 'T_c', 'T_h', 'theta_deg']
   y_labels: ['singular',  'spatial']
 
 machines:
@@ -23,6 +24,3 @@ machines:
   weights_predictor: GB
   reconstructor: LINEAR
 
-structures:
-  x_labels: ['m_c', 'm_h', 'T_c', 'T_h', 'theta_deg']
-  y_labels: ['singular',  'spatial']

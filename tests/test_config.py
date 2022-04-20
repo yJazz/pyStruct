@@ -5,7 +5,7 @@ from hydra.core.config_store import ConfigStore
 from omegaconf import DictConfig, OmegaConf
 import dataclasses
 
-from pyStruct.machines.config import TwoMachineConfig
+from pyStruct.config import TwoMachineConfig
 from pyStruct.machines.feature_processors import FeatureProcessor
 
 

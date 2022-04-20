@@ -2,22 +2,19 @@
 this file defines the configuration structures/hierarchies
 """
 
-from dataclasses import dataclass
-
+from dataclasses import dataclass, field
+from pathlib import Path
 
 @dataclass
 class Paths:
     save_to: str
 
-# @dataclass
-# class SignacStatepoint:
-#     method: str
-#     columns: str
 
+# -----------------------
 @dataclass
 class FeaturesParam:
     workspace: str
-    N_trains: int
+    N_trains_percent: float
     N_t: int
     N_modes: int
     N_dim: int
@@ -45,8 +42,15 @@ class Machines:
 @dataclass
 class TwoMachineConfig:
     paths: Paths
-    # signac: SignacStatepoint
     machines: Machines
     features: FeaturesParam
-    structures: StructureParam
 
+
+def check_config(config):
+    assert abs(int(config.features.N_trains_percent)) <=1
+
+    if config.machines.optimizer == 'INTERCEPT':
+        assert config.machines.reconstructor == 'INTERCEPT'
+    if config.machines.reconstructor =='INTERCEPT':
+        assert config.machines.optimizer =='INTERCEPT'
+    return

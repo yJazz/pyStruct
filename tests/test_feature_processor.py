@@ -1,7 +1,7 @@
 import pytest
 from dataclasses import dataclass
 from pyStruct.machines.feature_processors import PodCoherentStrength
-from pyStruct.machines.datastructures import *
+from pyStruct.data.datastructures import *
 from pyStruct.data.dataset import PodModesManager
 
 
@@ -68,10 +68,10 @@ def samples(config):
 # ======================================================
 def test_1_process_samples_and_modify_the_original_sample(feature_processor, samples):
     # Process single sample
+    sample_set = PodSampleSet(samples[0:1])
     assert hasattr(samples[0], 'flow_features') is False
-    feature_processor.process_samples(samples[0:1])
+    feature_processor.process_samples(sample_set)
     assert len(samples) >1
-
     assert hasattr(samples[0], 'flow_features')
     assert hasattr(samples[1], 'flow_features') is False
 

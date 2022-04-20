@@ -136,7 +136,7 @@ class Optimizer:
         pass
 
 class AllWeights(Optimizer):
-    def __init__(self, loss_weights_config=None):
+    def __init__(self, folder: Path, loss_weights_config=None):
         if loss_weights_config:
             assert len(loss_weights_config) == 5, "Need to specify: fft, std, min, max, hist"
 
@@ -151,6 +151,7 @@ class AllWeights(Optimizer):
             "hist_loss_weight":loss_weights_config[4],
             "maxiter":1000,
         }
+        self.save_to = folder 
 
     def optimize(
         self,
@@ -239,7 +240,7 @@ class PositiveWeights(Optimizer):
         return result.x
 
 class InterceptAndWeights(Optimizer):
-    def __init__(self, loss_weights_config=None):
+    def __init__(self, folder: Path, loss_weights_config=None):
         if loss_weights_config:
             assert len(loss_weights_config) == 5, "Need to specify: fft, std, min, max, hist"
 
@@ -254,6 +255,7 @@ class InterceptAndWeights(Optimizer):
             "hist_loss_weight":loss_weights_config[4],
             "maxiter":1000,
         }
+        self.save_to = folder 
     def get_constraint(self, x):
         return tuple([{'type':'ineq', 'fun': lambda x,i=i: x[i] - x[i+1]} for i in range(1, len(x)-1)] )
 

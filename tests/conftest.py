@@ -1,20 +1,22 @@
 import pytest
 from dataclasses import dataclass
+import numpy as np
 import hydra
 from hydra import compose, initialize
 from hydra.errors import MissingConfigException
 from hydra.core.config_store import ConfigStore
 from omegaconf import DictConfig, OmegaConf
 
-from pyStruct.machines.datastructures import BoundaryCondition, PodSample
+from pyStruct.data.datastructures import BoundaryCondition, PodSample
 from pyStruct.machines.framework import TwoMachineFramework
-from pyStruct.machines.config import TwoMachineConfig
-from pyStruct.machines.feature_processors_depr import PodCoherentStrength
+from pyStruct.config import TwoMachineConfig
+from pyStruct.machines.feature_processors import PodCoherentStrength
 from pyStruct.machines.structures import GBLookupStructure
 from pyStruct.data.dataset import PodModesManager
 
 
 # Some fixtures
+
 @dataclass
 class FeatureConfig:
     workspace: str
@@ -71,11 +73,22 @@ def samples(config):
     return samples
 
 
+@pytest.fixture
+def samples_with_features(samples, config):
+    N_t = config.N_t
+    N_modes = config.N_modes
+    N_features = len(config.y_labels)
+    for sample in samples:
+        sample.set_flowfeatures(time_series=np.random.rand(N_modes,N_t), descriptors=np.random.rand(N_modes, N_features))
+    return samples
 
-@dataclass
-class StructureParam:
-    x_labels: list[str]
-    y_labels: list[str]
+@pytest.fixture
+def samples_with_w_optms(samples_with_features, config):
+    N_modes = config.N_modes
+    for sample in samples_with_features:
+        sample.set_optimized_weights(weights=np.random.rand(N_modes,))
+    return samples_with_features
+
 
 
 @pytest.fixture
@@ -86,31 +99,5 @@ def bc():
 def non_exist_bc():
     return BoundaryCondition(m_c=538.8279, m_h=3.72136, T_c=34.95, T_h=8)
 
-
-@pytest.fixture
-def machine():
-    """ Create a config mimic the behavior of hydra"""
-    with initialize(config_path='test_data', job_name='test'):
-        cs = ConfigStore.instance()
-        cs.store(name='config_good', node=TwoMachineConfig)
-        cfg = compose(config_name='config_good')
-    machine = TwoMachineFramework(cfg)
-    return machine
-    
-@pytest.fixture
-def good_structure_config():
-    structure_config = StructureParam(
-        x_labels=['m_c', 'm_h', 'T_c', 'T_h', 'theta_deg'],
-        y_labels=['singular', 'spatial']
-        )
-    return structure_config
-
-@pytest.fixture
-def bad_structure_config():
-    structure_config = StructureParam(
-        x_labels=['m_c', 'v'],
-        y_labels=['singular', 'spatial']
-        )
-    return structure_config
 
     

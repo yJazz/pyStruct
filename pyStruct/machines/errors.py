@@ -23,6 +23,16 @@ class FeatureProcessorException(PyStructException):
     ...
 
 
+
+# --------------------- Optimizer ------------------------
+class OptimizerException(PyStructException):
+    ...
+
+class SampleNotFoundInOptimizationRecord(OptimizerException):
+    def __init__(self, message=''):
+        super(SampleNotFoundInOptimizationRecord, self).__init__(message)
+
+
 # ---------------------------------------------
 class StructureException(PyStructException):
     ...

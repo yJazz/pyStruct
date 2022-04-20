@@ -16,6 +16,88 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
+from pyStruct.data.datastructures import PodSampleSet, PodSample, BoundaryCondition
+from pyStruct.machines.errors import ModelPathNotFound
+
+
+class WeightsPredictor:
+    def train(self, sample_set):
+        raise NotImplementedError()
+
+    def predict(self):
+        raise NotImplementedError()
+
+    def load(self):
+        raise NotImplementedError()
+
+    def save(self):
+        raise NotImplementedError()
+        
+
+class GbRegressor(WeightsPredictor):
+    def __init__(self, config, folder: Path):
+        self.config = config
+        self.params = {
+            "n_estimators": 1000,
+            "max_depth":10,
+            "min_samples_split": 2,
+            "learning_rate": 0.005,
+            "loss": "squared_error",
+        }
+        self._models = []
+        self._norms = [] # since the features are in 3D array, stratify by mode
+        self.save_to = folder / 'models.pkl'
+
+    def train(self, sample_set: PodSampleSet) -> None:
+        # Get x and y
+        features = sample_set.flow_features.descriptors  
+        targets = sample_set.w_optm
+
+        for mode in range(self.config.N_modes):
+            x = features[:, mode, :]
+            norm = MinMaxScaler()
+            x = norm.fit_transform(x)
+
+            y = targets[:, mode]
+            model = self.create_model()
+            model.fit(x, y)
+            self._models.append(model)
+            self._norms.append(norm)
+        return
+
+    def predict(self, N_modes_descriptors: np.ndarray) -> np.ndarray:
+        """ 
+        input: 
+            descriptors: np.ndarray, shape (20, N_features)
+        output:
+            weight: float
+        """
+        weights = np.zeros(len(N_modes_descriptors))
+        for mode in range(len(N_modes_descriptors)):
+            model = self._models[mode]
+            norm = self._norms[mode]
+            x = norm.transform(N_modes_descriptors[mode, :].reshape(1, -1))
+            weights[mode] = model.predict(x)
+        return weights
+        
+    def create_model(self):
+        return ensemble.GradientBoostingRegressor(**self.params)
+
+    def save(self):
+        if hasattr(self, 'save_to'):
+            with open(self.save_to, 'wb') as f:
+                pickle.dump((self._models, self._norms), f)
+        else:
+            raise ModelPathNotFound("Need to initate `set_model_path`")
+    
+    def load(self):
+        if hasattr(self, 'save_to'):
+            with open(self.save_to, 'rb') as f:
+                self._models, self._norms = pickle.load(f)
+        else:
+            raise ModelPathNotFound("Need to initate `set_model_path`")
+
+
 
 
 def plot_regression_deviance(reg, params, X_test_norm, y_test):
@@ -144,17 +226,10 @@ def wp_split_train_test(feature_table, train_id, feature_labels, target_label):
     y_test = table_test[target_label]
     return X_train, y_train, X_test, y_test
 
-class WeightsPredictor:
-    def train(self, feature_table: pd.DataFrame):
-        pass
-    def predict(self, features: np.ndarray):
-        pass
-
-    def load(self, feature_table:pd.DataFrame):
-        pass
 
 
-class GbRegressor(WeightsPredictor):
+
+class GbRegressor_repr(WeightsPredictor):
     def __init__(self, config):
         self.config = config
         self.params = {
