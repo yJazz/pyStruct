@@ -103,11 +103,40 @@ class PodSample:
         self.wall_pred = temperature
 
 
+class DmdSample:
+    all_samples = []
+    def __init__(self, bc: BoundaryCondition, loc_index: int, wall_true: np.ndarray):
+        self.bc = bc
+        self.loc_index = loc_index
+        self.wall_true = wall_true
+        self.name = f'bc{self.bc.id}_theta{bc.theta_deg:.1f}'
+        DmdSample.all_samples.append(self)
 
+    def set_pod(self, X_spatial:np.ndarray, X_temporal:np.ndarray, X_s:np.ndarray, coord: np.ndarray):
+        self.pod = PodFeatures(X_spatial, X_temporal, X_s, coord)
+
+    def set_dmd(self, ):
+        pass
+
+    def set_flowfeatures(self, time_series: np.ndarray, descriptors: np.ndarray):
+        self.flow_features = FlowFeatures(time_series, descriptors)
+    
+    def set_pred_structures(self, pred_structures_names: list[str]):
+        self.pred_structures_names = pred_structures_names
+    
+    def set_pred_descriptors(self, descriptors: np.ndarray):
+        self.pred_descriptors = descriptors
+
+    def set_optimized_weights(self, weights: np.ndarray):
+        self.w_optm = weights
+
+    def set_predicted_weights(self, weights: np.ndarray):
+        self.w_pred = weights
+
+    def set_wall_pred(self, temperature: np.ndarray):
+        self.wall_pred = temperature
 # -------------------------------------------------
 
-class PodSets:
-    pass
 
 @dataclass
 class FlowFeatureSet:

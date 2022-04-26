@@ -9,6 +9,34 @@ from typing import Protocol
 from pyStruct.data.dataset import PodModesManager, DmdModesManager
 from pyStruct.data.datastructures import *
  
+def get_psd(dt_s, x):
+    """
+    Get fft of the samples
+    :param dt_s: time step
+    :param x: samples
+    :return:
+    """
+
+    # 2-side FFT
+    N = len(x)
+    xdft = fft(x)
+    freq = fftfreq(N, dt_s)
+
+    # convert 2-side to 1-side
+    if N % 2 == 0:
+        xdft_oneside = xdft[0:int(N / 2 )]
+        freq_oneside = freq[0:int(N / 2 )]
+    else:
+        xdft_oneside = xdft[0:int((N - 1) / 2)+1]
+        freq_oneside = freq[0:int((N - 1) / 2)+1]
+
+
+    # Power spectrum
+    Fs = 1 / dt_s
+    psdx = 1 / (Fs * N) * abs(xdft_oneside)**2
+    psdx[1:-1] = 2 * psdx[1:-1] # power for one-side
+    return freq_oneside, psdx
+
 
 def process_pod_to_1D_Descriptors(sample: PodSample) -> np.ndarray:
     loc_index = sample.loc_index
@@ -39,3 +67,14 @@ class PodCoherentStrength(FeatureProcessor):
 
     def compose_temporal_matrix(self, samples: list[PodSample]) -> np.ndarray:
         return np.array([sample.pod.X_temporal for sample in samples])
+
+# class DmdProcessor(FeatureProcessor):
+#     def __init__(self, feature_config):
+#         self.feature_config = feature_config
+#     def process_samples(self, sample_set: DmdSampleSet ):
+#         for sample in self.sample_set.samples:
+#             descriptors = process_dmd_to_1D_Descriptors(sample)
+#             timeseries = process_dmd_to_timeseries(sample)
+#             sample.set_flowfeatures(timeseries, descriptors)
+#         return
+    
