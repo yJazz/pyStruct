@@ -13,12 +13,8 @@ class Paths:
 # -----------------------
 @dataclass
 class FeaturesParam:
-    workspace: str
     N_trains_percent: float
-    N_t: int
     N_modes: int
-    N_dim: int
-    normalize_y: bool
     theta_degs: list[float]
     x_labels: list[str]
     y_labels: list[str]
@@ -28,6 +24,26 @@ class StructureParam:
     x_labels: list[str]
     y_labels: list[str]
 
+@dataclass
+class BcMapper:
+    M_COLD_KGM3S: str 
+    M_HOT_KGM3S: str
+    T_COLD_C: str
+    T_HOT_C: str
+
+
+@dataclass 
+class SignacSample:
+    processor_workspace: str
+    parent_workspace: str
+    columns: list[str]
+    method: str
+    N_t: int
+    dt: float
+    svd_truncate: int
+    normalize_y: bool
+    bc_mapper: BcMapper
+    theta_degs: list[float]
 
 # -------- 
 
@@ -39,9 +55,11 @@ class Machines:
     weights_predictor: str
     reconstructor: str
 
+# -------- 
 @dataclass
 class TwoMachineConfig:
     paths: Paths
+    signac_sample: SignacSample
     machines: Machines
     features: FeaturesParam
 

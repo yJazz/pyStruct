@@ -8,78 +8,22 @@ import itertools
 from tqdm import tqdm
 from rainflow import extract_cycles
 
-from pyStruct.machines.feature_processors import *
-from pyStruct.machines.optimizers import *
-from pyStruct.machines.regressors import *
-from pyStruct.machines.structures import *
-from pyStruct.machines.reconstructors import *
-from pyStruct.data.datastructures import PodSampleSet
-from pyStruct.machines.directory import FrameworkPaths
-from pyStruct.machines.errors import SampleNotFoundInOptimizationRecord
+from pyStruct.database.signacJobData import SignacJobData
+from pyStruct.machineSelector import machine_selection
+from pyStruct.sampleCollector.sampleStructure import Sample, BoundaryCondition
+from pyStruct.sampleCollector.sampleSetStructure import SampleSet
+from pyStruct.sampleCollector.samples import initialize_sample_from_signac
+from pyStruct.directory import FrameworkPaths
+from pyStruct.errors import SampleNotFoundInOptimizationRecord
 from pyStruct.config import check_config
 
 
-FEATURE_PROCESSORS = {
-    'COHERENT_STRENGTH': PodCoherentStrength
-}
 
-OPTIMIZERS = {
-    'POSITIVE_WEIGHTS': PositiveWeights,
-    'ALL_WEIGHTS':AllWeights,
-    'INTERCEPT': InterceptAndWeights,
-    'POS_INTERCEPT': PositiveInterceptAndWeights,
-}
-
-WEIGHTS_PREDICTORS ={
-    'BAYESIAN': BayesianModel,
-    'MULTIBAYESIAN':MultiLevelBayesian,
-    'GB': GbRegressor,
-    'BSPLINE':BSpline,
-    'NN': NnRegressor
-}
-STRUCTURE_PREDICTORS = {
-    'GB': GBLookupStructure,
-    'BAYESIAN': BayesianLookupStructure
-}
-RECONSTRUCTORS = {
-    'LINEAR': LinearReconstruction,
-    'INTERCEPT': InterceptReconstruction
-}
-
-
-
-def initialize_pod_samples(workspace, theta_degs, normalize_y):
-    """ A messy code... should refactor later"""
-    samples = []
-
-    pod_manager = PodModesManager(name='', workspace=workspace, normalize_y=normalize_y)
-    bcs = pod_manager._read_signac()
-    for sample in range(pod_manager.N_samples):
-        m_c = bcs[sample]['M_COLD_KGM3S']
-        m_h = bcs[sample]['M_HOT_KGM3S']
-        T_c = bcs[sample]['T_COLD_C']
-        T_h = bcs[sample]['T_HOT_C']
-
-        X_spatial = pod_manager.X_spatials[sample, ...]
-        X_temporal = pod_manager.X_temporals[sample, ...]
-        X_s = pod_manager.X_s[sample, ...]
-        coord = pod_manager.coords[sample]
-        # pod = PodFeatures(coord=coord, X_spatial=X_spatial, X_temporal=X_temporal, X_s=X_s)
-
-        for theta_deg in theta_degs:
-            T_wall = pod_manager.T_walls[f'{theta_deg:.2f}']['T_wall'][sample, :]
-            loc_index =pod_manager.T_walls[f'{theta_deg:.2f}']['loc_index']
-            bc = BoundaryCondition(m_c, m_h, T_c, T_h, theta_deg)
-            s = PodSample(bc, loc_index, T_wall)
-            s.set_pod(X_spatial, X_temporal, X_s, coord)
-            samples.append(s)
-    return samples
 
 
 class TwoMachineFramework:
     def __init__(self, config, start_new=False):
         # Check config
-        print(config)
         check_config(config)
 
         # initialize the machines
@@ -92,49 +36,42 @@ class TwoMachineFramework:
         self.paths = FrameworkPaths(root=config.paths.save_to, machine_config=config.machines)
 
         # initialize samples
-        self.samples = initialize_pod_samples(
-            config.features.workspace, 
-            config.features.theta_degs,
-            config.features.normalize_y
-            )
+        samples = initialize_sample_from_signac(self.config.signac_sample)
+        assert len(samples) > 0, "Empty samples, check given condition"
         
         np.random.seed(1)
-        np.random.shuffle(self.samples)
-        N_samples = len(self.samples)
+        np.random.shuffle(samples)
+        N_samples = len(samples)
         N_trains = int(N_samples * self.config.features.N_trains_percent)
         print('==== Samples ====')
         print(f'All: {N_samples}')
         print(f'Training: {N_trains}')
         print(f'Testing: {N_samples - N_trains}')
 
-        self.training_set = PodSampleSet(self.samples[:N_trains])
-        self.testing_set = PodSampleSet(self.samples[N_trains:])
+        self.training_set = SampleSet(samples[:N_trains])
+        self.testing_set = SampleSet(samples[N_trains:])
 
 
         # Feature processor 
-        self.feature_processor = FEATURE_PROCESSORS[
-            config.machines.feature_processor.upper()](
-                config.features)
-        self.feature_processor.process_samples(self.training_set)
+
+        feature_processor, optimizer, weights_predictor, structure_predictor, reconstructor = machine_selection(config.machines)
+        self.feature_processor = feature_processor(config.features, self.paths.feature_processor)
+        for sample in self.training_set.samples:
+            print(f"processing sample: {sample.name}")
+            timeseries, descriptors = self.feature_processor.process_features(sample)
+            sample.set_flowfeatures(timeseries, descriptors)
 
         # Structure predictor
-        self.structure_predictor = STRUCTURE_PREDICTORS[
-            config.machines.structure_predictor.upper()](
-                config.features, self.paths.structure_predictor)
+        self.structure_predictor = structure_predictor(config.features, self.paths.structure_predictor)
 
         # Optimization
-        self.optimizer = OPTIMIZERS[
-            config.machines.optimizer.upper()](
-                self.paths.optimizer)
+        self.optimizer = optimizer(self.paths.optimizer)
 
         # Predict weights
-        self.weights_predictor = WEIGHTS_PREDICTORS[
-            config.machines.weights_predictor.upper()](
-                config.features, self.paths.weights_predictor)
+        self.weights_predictor = weights_predictor(config.features, self.paths.weights_predictor)
 
         # Reconstructor
-        self.reconstructor = RECONSTRUCTORS[
-            config.machines.reconstructor.upper()]()
+        self.reconstructor = reconstructor()
 
     def _train_structure(self):
         """ """
@@ -176,7 +113,7 @@ class TwoMachineFramework:
                 all_weights.append(weights) 
                 sample.set_optimized_weights(weights)
         
-            record = pd.DataFrame(np.array(all_weights), columns=[f'w{mode}' for mode in range(len(weights))])
+            record = pd.DataFrame(np.array(all_weights), columns=[f'w{mode}' for mode in range(N_modes)])
             record.insert(0, 'sample',self.training_set.name)
             record.to_csv(self.optimizer.save_to/'optm.csv', index=False)
         return
@@ -224,7 +161,7 @@ class TwoMachineFramework:
         print(weights.shape)
 
         # compose
-        pred_set = PodSampleSet(predicted_samples)
+        pred_set = SampleSet(predicted_samples)
         X = pred_set.flow_features.time_series
 
         # reconstruct
@@ -234,7 +171,7 @@ class TwoMachineFramework:
 
 
 class ValidateFramework:
-    def __init__(self, sample_set: PodSampleSet, reconstructor):
+    def __init__(self, sample_set: SampleSet, reconstructor):
         self.sample_set = sample_set
         self.reconstructor = reconstructor
 
@@ -245,7 +182,7 @@ class ValidateFramework:
             print("================")
         return 
     
-    def validate_optimize(self, samples=None) -> list[PodSample]:
+    def validate_optimize(self, samples=None) -> list[Sample]:
         if samples is None:
             samples = self.sample_set.samples
 

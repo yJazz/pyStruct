@@ -4,9 +4,12 @@ from pathlib import Path
 import numpy as np
 import shutil 
 import pandas as pd
-from pyStruct.data.datastructures import BoundaryCondition, PodSampleSet, PodSample
-from pyStruct.machines.structures import GBLookupStructure, find_corresponding_sample
-from pyStruct.machines.errors import LabelNotInStructureTable, StructureModelNoneExist, ModelPathNotFound
+
+from pyStruct.sampleCollector.sampleSetStructure import SampleSet
+from pyStruct.sampleCollector.sampleStructure import Sample
+
+from pyStruct.structurePredictor.lookupStructures import GBLookupStructure, find_corresponding_sample
+from pyStruct.errors import LabelNotInStructureTable, StructureModelNoneExist, ModelPathNotFound
 
 @dataclass
 class StructureParam:
@@ -21,8 +24,19 @@ def bad_structure_config():
         )
     return structure_config
 
+@pytest.fixture
+def samples_with_features(samples):
+    @dataclass
+    class FlowFeature:
+        descriptors = np.random.rand(20, 5)
+        time_series = np.random.rand(20, 1000)
+
+    for sample in samples:
+        setattr(sample, 'flow_features', FlowFeature())
+    return samples
+
     
-class TestGBLookup:
+class TestLookupStructures:
     output_to = Path('./tests/output/test_structure/GB')
     @classmethod
     def setup_class(cls):
@@ -39,7 +53,7 @@ class TestGBLookup:
             )
         self.machine = GBLookupStructure(
             structure_config, 
-            TestGBLookup.output_to)
+            TestLookupStructures.output_to)
         return
 
     def test_1_create_model(self):
@@ -47,13 +61,13 @@ class TestGBLookup:
         assert hasattr(model, 'fit')
 
     def test_2_train(self, samples_with_features):
-        self.machine.train(PodSampleSet(samples_with_features))
+        self.machine.train(SampleSet(samples_with_features))
         
     def test_3_predict_without_model(self, samples):
         
         bc = samples[0].bc
         try:
-            self.machine.predict(bc, PodSampleSet(samples))
+            self.machine.predict(bc, SampleSet(samples))
         except StructureModelNoneExist:
             print("The Model None Exist is captured")
         except:
@@ -79,7 +93,7 @@ class TestGBLookup:
         # Specify the model path
         to_folder = Path(r'.')/'structure_predictor'
 
-        self.machine.train(PodSampleSet(samples_with_features))
+        self.machine.train(SampleSet(samples_with_features))
         self.machine.save()
         self.machine.load()
         assert len(self.machine._models) != 0
@@ -87,11 +101,11 @@ class TestGBLookup:
         # shutil.rmtree(to_folder)
 
     def test_6_predict(self, samples_with_features):
-        sample_set = PodSampleSet(samples_with_features)
+        sample_set = SampleSet(samples_with_features)
         self.machine.train(sample_set)
 
         # predict
         bc = samples_with_features[0].bc
         predicted_descriptors, predicted_samples = self.machine.predict(bc, sample_set)
-        assert all([isinstance(prediction, PodSample) for prediction in predicted_samples])
+        assert all([isinstance(prediction, Sample) for prediction in predicted_samples])
         assert all([ type(prediction) == np.ndarray for prediction in predicted_descriptors])

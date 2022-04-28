@@ -1,7 +1,7 @@
 import pytest
 from dataclasses import dataclass, fields
 from pathlib import Path
-from pyStruct.machines.directory import *
+from pyStruct.directory import *
 
 @dataclass
 class MachineConfig:

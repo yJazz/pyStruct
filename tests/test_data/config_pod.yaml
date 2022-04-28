@@ -1,0 +1,34 @@
+paths: 
+  save_to: ./tests/output
+
+machines:
+  feature_processor: POD_COHERENT_STRENGTH
+  optimizer: REAL_WEIGHTS
+  structure_predictor: GB
+  weights_predictor: GB
+  reconstructor: LINEAR
+
+signac_sample:
+  processor_workspace: F:\project2_phD_bwrx\db_bwrx_processor
+  parent_workspace: F:\project2_phD_bwrx\db_bwrx_cfd
+  columns: ['Velocity[i] (m/s)','Velocity[j] (m/s)', 'Velocity[k] (m/s)']
+  method: 'dmd'
+  N_t: 1000
+  dt: 0.005
+  svd_truncate: 20
+  normalize_y: False
+  bc_mapper: 
+    M_COLD_KGM3S: m_c 
+    M_HOT_KGM3S: m_h
+    T_COLD_C: T_c
+    T_HOT_C: T_h
+  theta_degs: [0]
+    
+
+features:
+  N_trains_percent: 0.8
+  N_modes: 20
+  x_labels: ['m_c', 'm_h', 'T_c', 'T_h', 'theta_deg']
+  y_labels: ['singular',  'spatial']
+
+
