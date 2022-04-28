@@ -44,6 +44,12 @@ class PodFeatures:
     X_s:np.ndarray
 
 @dataclass
+class DmdFeatures:
+    modes:np.ndarray
+    eigenvalues: np.ndarray
+    amplitudes:np.ndarray
+
+@dataclass
 class FlowFeatures:
     time_series: np.ndarray # shape: (N_mode, N_t)
     descriptors: np.ndarray # shape: (N_mode, N_features)
@@ -106,6 +112,12 @@ class Sample(SampleInterface):
 
         self.name = f'bc{self.bc.id}_theta{bc.theta_deg:.1f}'
         self.loc_index = find_loc_index(bc.theta_deg, coord)
+
+    def set_pod(self, spatials: np.ndarray, temporals: np.ndarray, singulars: np.ndarray):
+        self.pod = PodFeatures(X_spatial=spatials, X_temporal = temporals, X_s = singulars)
+
+    def set_dmd(self, modes: np.ndarray, eigenvalues: np.ndarray, amplitudes: np.ndarray):
+        self.dmd = DmdFeatures(modes, eigenvalues, amplitudes)
 
     def set_flowfeatures(self, time_series: np.ndarray, descriptors: np.ndarray):
         self.flow_features = FlowFeatures(time_series, descriptors)

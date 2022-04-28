@@ -51,7 +51,7 @@ class SignacJobData(JobDataInterface):
         path = Path(self.parent_job.workspace()) / "TimeSeries" / f'loc_{loc}.csv'
         if not path.exists():
             raise TimeSeriesDataNotExist(f'{path}')
-        tempearture = read_temperature(path)
+        tempearture = read_temperature(path) - 273.15
 
         if normalize:
             T_c = self.bc['T_c']

@@ -66,9 +66,4 @@ class TwoMachineConfig:
 
 def check_config(config):
     assert abs(int(config.features.N_trains_percent)) <=1
-
-    if config.machines.optimizer == 'INTERCEPT':
-        assert config.machines.reconstructor == 'INTERCEPT'
-    if config.machines.reconstructor =='INTERCEPT':
-        assert config.machines.optimizer =='INTERCEPT'
     return

@@ -10,4 +10,5 @@ class LinearReconstruction(ReconstructorInterface):
 
 class InterceptReconstruction(ReconstructorInterface):
     def reconstruct(self, X: np.ndarray, weights: np.ndarray) -> np.ndarray:
-        return weights[0] + np.matmul(weights[1:], X).flatten()
+        N_mode, _ = X.shape
+        return weights[-1] + np.matmul(weights[:N_mode], X).flatten()

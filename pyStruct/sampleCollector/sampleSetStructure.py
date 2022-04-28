@@ -48,6 +48,13 @@ class SampleSet(SampleSet):
 
     def bc(self, names: list[str]=None):
         return np.vstack([sample.bc.array(names) for sample in self.samples])
+
+    def filter(self, name: str):
+        for s in self.samples:
+            if s.name == name:
+                return s
+        raise DataNotExist(f"The sample name {name} is not found")
+         
     
     @property
     def name(self):

@@ -86,37 +86,42 @@ class TwoMachineFramework:
             self.structure_predictor.save()
         return 
     
-    def _optimize(self) -> None:
+    def _optimize(self) -> np.ndarray:
         # Decoupled method: this part is independent of the structure prediction
         # compose temporal matrix
         # by training samples
 
         N_modes = self.config.features.N_modes
         record_file = self.optimizer.save_to/'optm.csv'
+        all_weights=[]
         if record_file.exists():
+            print(f"Optimization exist, LOAD")
             record = pd.read_csv(record_file)
             for i, sample in enumerate(self.training_set.samples):
-                weights = record.loc[(record['sample'] == sample.name), [f'w{mode}' for mode in range(N_modes)]].values.flatten()
-                if len(weights) == 0:
+                w = record.loc[(record['sample'] == sample.name)].values.flatten()[1:]
+                if len(w) == 0:
                     raise SampleNotFoundInOptimizationRecord(
                         f"sample name: {sample.name}"
                     )
-                sample.set_optimized_weights(weights)
+                all_weights.append(w) 
+            all_weights = np.array(all_weights)
+
         else:
-            all_weights=[]
             for i, sample in enumerate(self.training_set.samples):
+                print(f'Optimize sample: {sample.name}')
                 X = sample.flow_features.time_series
                 y = sample.wall_true
 
                 # Optimize
-                weights = self.optimizer.optimize(X, y) # shape: (N_modes, )
-                all_weights.append(weights) 
-                sample.set_optimized_weights(weights)
+                w = self.optimizer.optimize(X, y) # shape: (N_modes, )
+                all_weights.append(w) 
+            all_weights = np.array(all_weights)
         
-            record = pd.DataFrame(np.array(all_weights), columns=[f'w{mode}' for mode in range(N_modes)])
+            record = pd.DataFrame(all_weights, columns=[f'w{mode}' for mode in range(all_weights.shape[1])])
             record.insert(0, 'sample',self.training_set.name)
             record.to_csv(self.optimizer.save_to/'optm.csv', index=False)
-        return
+        
+        return all_weights
 
     def _train_weights(self):
         # Specify save folder
@@ -137,13 +142,17 @@ class TwoMachineFramework:
             sample.set_pred_structures([s.name for s in predicted_samples])
         assert all(hasattr(sample, 'pred_structures_names') for sample in self.training_set.samples)
 
-        # Train Weights
         # optimize 
-        self._optimize()
+        all_weights = self._optimize()
+        for i, sample in enumerate(self.training_set.samples):
+            weights = all_weights[i, :]
+            sample.set_optimized_weights(weights)
+
+        # Train Weights
         self._train_weights()
         for sample in self.training_set.samples:
             N_modes_descriptors = sample.flow_features.descriptors
-            weights = self.weights_predictor.predict(N_modes_descriptors)
+            weights = self.weights_predictor.predict(N_modes_descriptors, sample.bc.array())
             sample.set_predicted_weights(weights)
         
         # Full Framework
@@ -157,12 +166,13 @@ class TwoMachineFramework:
         predicted_descriptors, predicted_samples = self.structure_predictor.predict(bc, self.training_set)
 
         # Predict weights
-        weights = self.weights_predictor.predict(predicted_descriptors)
+        weights = self.weights_predictor.predict(predicted_descriptors, bc.array())
         print(weights.shape)
 
         # compose
         pred_set = SampleSet(predicted_samples)
-        X = pred_set.flow_features.time_series
+        # X = pred_set.flow_features.time_series
+        X = np.array([s.flow_features.time_series[mode, :] for mode, s in enumerate(predicted_samples) ])
 
         # reconstruct
         y_pred = self.reconstructor.reconstruct(X, weights)
@@ -175,14 +185,23 @@ class ValidateFramework:
         self.sample_set = sample_set
         self.reconstructor = reconstructor
 
-    def validate_structure(self):
-        for sample in self.sample_set.samples:
-            print(f'BC: {sample.name}')
-            print(sample.pred_structures_names)
-            print("================")
+    def validate_structure(self, file=None):
+        if file:
+            with open(file, 'w') as f:
+                for sample in self.sample_set.samples:
+                    f.write(f'BC: {sample.name}\n')
+                    f.write(','.join(sample.pred_structures_names))
+                    f.write("\n================\n")
+
+        else:
+            for sample in self.sample_set.samples:
+                print(f'BC: {sample.name}')
+                print(sample.pred_structures_names)
+                print("================")
+
         return 
     
-    def validate_optimize(self, samples=None) -> list[Sample]:
+    def validate_optimize(self, samples: list[Sample]=None, folder=None) -> list[Sample]:
         if samples is None:
             samples = self.sample_set.samples
 
@@ -190,27 +209,43 @@ class ValidateFramework:
             weights = sample.w_optm
             # Reconstruct
             X = sample.flow_features.time_series
+            y_true = sample.wall_true
             y_optm = self.reconstructor.reconstruct(X, weights)
-            y_pred = sample.wall_true
-            plt.plot(y_pred, label='true')
+
+            plt.plot(y_true, label='true')
             plt.plot(y_optm, label='optm')
-            plt.show()
+            plt.legend()
+            plt.title(str(sample.bc))
+            
+
+            if folder:
+                plt.savefig(folder/f'val_optm_{sample.name}.png')
+                plt.clf()
+            else:
+                plt.show()
         return 
 
-    def validate_weights(self) -> None:
+    def validate_weights(self, file=None) -> None:
         for sample in self.sample_set.samples:
             plt.scatter(sample.w_optm, sample.w_pred, label=sample.name)
         plt.plot([-1, 1], [-1,1], 'k--')
         plt.legend(bbox_to_anchor=(1.1, 1.1))
         plt.tight_layout()
+        if file:
+            plt.savefig(file)
         plt.show()
         return
 
-    def validate_workflow(self, samples=None):
+    def validate_workflow(self, samples=None, folder=None):
         if samples is None:
             samples = self.sample_set.samples
         for sample in samples:
             plt.plot(sample.wall_true, label='true')
             plt.plot(sample.wall_pred, label='pred')
-            plt.show
+            plt.legend()
+            if folder:
+                plt.savefig(folder/f'val_{sample.name}.png')
+                plt.clf()
+            else:
+                plt.show()
         pass

@@ -1,5 +1,6 @@
 from scipy.interpolate import griddata
 import numpy as np
+import pandas as pd
 
 
 def plot_cartesian(fig, ax, y,z,value, resolution = 50,contour_method='cubic', vmin=-0.002, vmax=0.002):

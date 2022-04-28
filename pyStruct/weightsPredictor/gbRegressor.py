@@ -30,11 +30,18 @@ class GbRegressor(WeightsPredictor):
 
     def train(self, sample_set: SampleSet) -> None:
         # Get x and y
-        features = sample_set.flow_features.descriptors  
+        descriptors = sample_set.flow_features.descriptors  
         targets = sample_set.w_optm
+        N_modes = descriptors.shape[1]
+        N_weights = targets.shape[1]
 
-        for mode in range(self.config.N_modes):
-            x = features[:, mode, :]
+        for mode in range(N_weights):
+            if mode >= N_modes:
+                # use bc
+                x = sample_set.bc()
+            else:
+                # use descriptors
+                x = descriptors[:, mode, :]
             norm = MinMaxScaler()
             x = norm.fit_transform(x)
 
@@ -45,18 +52,24 @@ class GbRegressor(WeightsPredictor):
             self._norms.append(norm)
         return
 
-    def predict(self, N_modes_descriptors: np.ndarray) -> np.ndarray:
+    def predict(self, N_modes_descriptors: np.ndarray, bc_array: np.ndarray) -> np.ndarray:
         """ 
         input: 
             descriptors: np.ndarray, shape (20, N_features)
         output:
             weight: float
         """
-        weights = np.zeros(len(N_modes_descriptors))
-        for mode in range(len(N_modes_descriptors)):
+        N_modes = len(N_modes_descriptors)
+        N_weights = len(self._models)
+
+        weights = np.zeros(N_weights)
+        for mode in range(N_weights):
             model = self._models[mode]
             norm = self._norms[mode]
-            x = norm.transform(N_modes_descriptors[mode, :].reshape(1, -1))
+            if mode >= N_modes:
+                x = norm.transform(bc_array)
+            else:
+                x = norm.transform(N_modes_descriptors[mode, :].reshape(1, -1))
             weights[mode] = model.predict(x)
         return weights
         

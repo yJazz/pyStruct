@@ -7,8 +7,9 @@ from pyStruct.optimizers.losses import *
 
 
 def intercept_objective(w, X_r, y_r, fft_loss_weight, std_loss_weight, min_loss_weight, max_loss_weight, hist_weight, initial_weighting):
+    N_modes, _ = X_r.shape
     e_fft_0, e_std_0, e_min_0, e_max_0, e_hist_0 = initial_weighting 
-    y_pred = w[0] + np.matmul(w[1:], X_r)
+    y_pred = w[-1] + np.matmul(w[:N_modes], X_r)
     e_fft = fft_loss(y_r, y_pred)
     e_std = std_loss(y_r, y_pred)
     e_min = min_loss(y_r, y_pred)

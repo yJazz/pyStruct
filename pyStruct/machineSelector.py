@@ -24,7 +24,6 @@ def optimizer_selector(optimizer):
     elif optimizer.upper() == 'INTERCEPT_REAL':
         from pyStruct.optimizers.interceptOptm import InterceptRealWeights
         return InterceptRealWeights
-
     elif optimizer.upper() == 'INTERCEPT_POSITIVE':
         from pyStruct.optimizers.interceptOptm import InterceptPositive
         return InterceptPositive

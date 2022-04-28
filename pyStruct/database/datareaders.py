@@ -7,6 +7,11 @@ def read_pickle(file_path):
         data = pickle.load(f)
     return data
 
+def dump_pickle(file_path: str, obj):
+    with open(file_path, 'wb') as f:
+        pickle.dump(obj, f)
+    return 
+
 def read_csv(path):
     return pd.read_csv(path, header=None).to_numpy()
 

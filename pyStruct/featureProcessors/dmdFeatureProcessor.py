@@ -1,7 +1,8 @@
 import numpy as np
+from pathlib import Path
 
 from pyStruct.database.datareaders import read_csv
-from pyStruct.datastructures.sampleSetStructure import SampleSet
+from pyStruct.sampleCollector.sampleStructure import Sample
 from pyStruct.featureProcessors.featureProcessors import FeatureProcessor, Descriptors, TimeSeries
 
 def standard_dmd(x: np.ndarray, truncate: int = None) -> tuple:
@@ -33,20 +34,39 @@ def standard_dmd(x: np.ndarray, truncate: int = None) -> tuple:
     print("Done")
     return modes, eigenvalues, amplitudes
 
+def process_sample(sample: Sample):
+    X_matrix = read_csv(sample.X_matrix_path)[:, -sample.N_t:]
+    modes, eigenvalues, amplitudes= standard_dmd(X_matrix, sample.svd_truncate)
+    modes = np.array( np.split(modes, sample.N_dim, axis=0)) 
+    return modes, eigenvalues, amplitudes
+
 def process_dmd_to_1D_Descriptors() -> np.ndarray:
     pass
 
 
 class DmdCoherentStrength(FeatureProcessor):
-    def __init__(self, feature_config):
+    def __init__(self, feature_config, folder: Path):
         self.feature_config = feature_config
-
-    def _process_sample(self, sample):
-        X_matrix = read_csv(sample.X_matrix_path)
-        pass
+        self.save_to = folder
     
-    def process_features(self, sample_set: SampleSet) -> tuple[Descriptors, TimeSeries]:
+    def process_features(self, sample: Sample) -> tuple[Descriptors, TimeSeries]:
         """ Concrete method on how to obtain descriptors and timeseries"""
-        for sample in sample_set.samples:
-            pass
-        return descriptors, timeseries
+        saved_feature_files = {
+            'descriptors':self.save_to / f'{sample.name}_descriptors.csv',
+            'timeseries': self.save_to / f'{sample.name}_timeseries.csv'
+        }
+        if all([ value.exists() for key, value in saved_feature_files.items()]):
+            descriptors = read_csv(saved_feature_files['descriptors'])
+            timeseries = read_csv(saved_feature_files['timeseries'])
+        else:
+            modes, eigenvalues, amplitudes = process_sample(sample) 
+            descriptors = process_dmd_to_1D_Descriptors(
+                loc_index = sample.loc_index, 
+                eigenvalues = eigenvalues,
+                amplitudes = amplitudes,
+                )
+            timeseries = process_dmd_to_timeseries()
+            np.savetxt(saved_feature_files['descriptors'], descriptors, delimiter=",")
+            np.savetxt(saved_feature_files['timeseries'], timeseries, delimiter=",")
+
+        return timeseries, descriptors
