@@ -1,33 +1,39 @@
-from pyStruct.database.signacSelector import SignacDatabaseSelector, get_signac_parent_job
-from pyStruct.database.signacJobData import SignacJobData
+from pathlib import Path
+
+import hydra
+from hydra.core.config_store import ConfigStore
+from scipy.interpolate import griddata
+
+from pyStruct.config import TwoMachineConfig
+from pyStruct.framework import TwoMachineFramework, ValidateFramework
+from pyStruct.database.datareaders import dump_pickle, read_pickle, read_csv
+from pyStruct.visualizers.plots import plot_cartesian
 
 
-PROCESSOR_WORKSPACE = r'F:\project2_phD_bwrx\db_bwrx_processor'
-PARENT_WORKSPACE = r'F:\project2_phD_bwrx\db_bwrx_cfd'
-COLUMNS= ['Velocity[i] (m/s)','Velocity[j] (m/s)','Velocity[k] (m/s)']
-N_T= 1000
-D_T = 0.005
-MAPPER = {
-    'M_COLD_KGM3S': 'm_c', 
-    'M_HOT_KGM3S': 'm_h',
-    'T_COLD_C': 'T_c',
-    'T_HOT_C': 'T_h'
-}
+cs = ConfigStore.instance()
+cs.store(name='config', node=TwoMachineConfig)
 
-if __name__ == "__main__":
-    # Select Jobs from database Case
-    functions = [
-        lambda job: job.sp.proc_sp.method =='dmd', # dmd only
-        lambda job: job.sp.proc_sp.columns == ','.join(COLUMNS) # three dim
-    ]
-    db = SignacDatabaseSelector(
-        workspace = PROCESSOR_WORKSPACE
-    )
-    jobs  = db.filter(functions)
+@hydra.main(config_path="config", config_name='config_3dpod_intercept')
+def main(cfg:TwoMachineConfig):
+    machine = TwoMachineFramework(cfg)
+    machine.train()
+    machine.test()
 
-    # Data Initalization
-    # Containing inputs like bc, X_matrix,... 
-    job_datas = [SignacJobData(job, get_signac_parent_job(PARENT_WORKSPACE, job, job.sp.cfd_sp), bc_mapper=MAPPER) for job in jobs]
+    # Validation
+    reconstructor = machine.reconstructor
 
-    # Process
+    val_save_to = Path(cfg.paths.save_to) / 'val_train' 
+    val_save_to.mkdir(parents=True, exist_ok=True)
+    val = ValidateFramework(machine.training_set, reconstructor)
+    val.validate_structure(file = val_save_to /'structure.txt')
+    val.validate_optimize(folder = val_save_to)
+    val.validate_weights(file = val_save_to/'weights_pred.png')
+    val.validate_workflow(folder = val_save_to)
 
+    test_save_to = Path(cfg.paths.save_to) / 'test_train' 
+    test_save_to.mkdir(parents=True, exist_ok=True)
+    test = ValidateFramework(machine.testing_set, reconstructor)
+    test.validate_workflow(folder = test_save_to)
+
+if __name__ == '__main__':
+    main()
