@@ -15,6 +15,17 @@ def dump_pickle(file_path: str, obj):
 def read_csv(path):
     return pd.read_csv(path, header=None).to_numpy()
 
+def read_csv_complex(path):
+    data = pd.read_csv(path, sep=',', header=None)
+    data = data.applymap(lambda s: np.complex(s.replace('i', 'j'))).values
+    return data
+
+
+def save_csv(path, obj):
+    np.savetxt(path, obj, delimiter=',')
+    return
+
+
 def read_temperature(path):
     return pd.read_csv(path)['Temperature (K)'].values
 

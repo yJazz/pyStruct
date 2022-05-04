@@ -36,9 +36,13 @@ class InterceptRealWeights(Optimizer):
             "maxiter":1000,
         }
         self.save_to = folder 
+        self.all_weights = None
 
     def get_constraint(self, x):
         return tuple([{'type':'ineq', 'fun': lambda x,i=i: x[i] - x[i+1]} for i in range(1, len(x)-1)] )
+
+    def set_all_weights(self, all_weights: np.ndarray):
+        self.all_weights = all_weights
 
     def optimize(
         self,

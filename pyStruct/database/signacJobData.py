@@ -6,9 +6,14 @@ import numpy as np
 from pyStruct.database.jobData import JobDataInterface
 from pyStruct.database.datareaders import read_csv, read_gridfile, read_temperature, find_loc_index
 
-class TimeSeriesDataNotExist(Exception):
+class CfdDataNotExist(Exception):
     def __init__(self, message=None):
+        super(CfdDataNotExist, self).__init__(message)
+
+class TimeSeriesDataNotExist(Exception):
+    def __init__(self, message=""):
         super(TimeSeriesDataNotExist, self).__init__(message)
+
 class SnapshotMatrixFileNotFoundError(Exception):
     ...
 
@@ -18,6 +23,10 @@ class SignacJobData(JobDataInterface):
         self.job = job
         self.parent_job = parent_job
         self.bc_mapper = bc_mapper
+
+        path = Path(self.parent_job.workspace()) / 'cfd'
+        if not path.exists():
+            raise CfdDataNotExist()
 
     def __repr__(self):
         return f'job: {self.job}, parent_job: {self.parent_job}'

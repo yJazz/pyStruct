@@ -16,6 +16,65 @@ from pyStruct.sampleCollector.samples import initialize_sample_from_signac
 from pyStruct.directory import FrameworkPaths
 from pyStruct.errors import SampleNotFoundInOptimizationRecord
 from pyStruct.config import check_config
+from pyStruct.optimizers.optimizer import optimize
+
+def get_sample_flow_features(feature_processor, sample_set):
+    for sample in sample_set.samples:
+        time_series, descriptors = feature_processor.process_features(sample)
+        sample.set_flowfeatures(time_series, descriptors)
+    return
+
+def get_sample_pred_structures(structure_predictor, sample_set):
+    for sample in sample_set.samples:
+        _, predicted_samples = structure_predictor.predict(sample.bc, sample_set)
+        sample.set_pred_structures([s.name for s in predicted_samples])
+    assert all(hasattr(sample, 'pred_structures_names') for sample in sample_set.samples)
+    return
+
+def get_sample_optimization_weights(optimizer, sample_set):
+    for i, sample in enumerate(sample_set.samples):
+        weights = optimizer.all_weights[i, :]
+        sample.set_optimized_weights(weights)
+    return
+
+def get_sample_prediction_weights(weights_predictor, sample_set):
+    for sample in sample_set.samples:
+        N_modes_descriptors = sample.flow_features.descriptors
+        weights = weights_predictor.predict(N_modes_descriptors, sample.bc.array())
+        sample.set_predicted_weights(weights)
+    return
+
+def get_sample_full_prediction(machine, sample_set):
+    for sample in sample_set.samples:
+        y_pred = machine.predict(sample.bc)
+        sample.set_wall_pred(y_pred)
+    return
+
+    
+
+def train_structure(structure_predictor, sample_set: SampleSet):
+    # Specify save folder
+    if structure_predictor.save_to.exists():
+        print("Structure model exist; LOAD")
+        structure_predictor.load()
+    else:
+        # Get x y pairs and train
+        print("Structure model doesn't exist; TRAIN")
+        structure_predictor.train(sample_set)
+        structure_predictor.save()
+    return
+
+def train_weights(weights_predictor, sample_set: SampleSet):
+    # Specify save folder
+    if weights_predictor.save_to.exists():
+        print("Weights model exist; LOAD")
+        weights_predictor.load()
+    else:
+        # Get x y pairs and train
+        print("Weights model doesn't exist; TRAIN")
+        weights_predictor.train(sample_set)
+        weights_predictor.save()
+    return
 
 
 
@@ -35,10 +94,17 @@ class TwoMachineFramework:
         # Create Path manager
         self.paths = FrameworkPaths(root=config.paths.save_to, machine_config=config.machines)
 
+        # initialize machines
+        self.initialize_machines(self.config)
+
         # initialize samples
-        samples = initialize_sample_from_signac(self.config.signac_sample)
+        self.training_set, self.testing_set = self.initialize_samples(self.config.signac_sample)
+        # get_sample_flow_features(self.feature_processor, self.training_set)
+
+    def initialize_samples(self, config):
+        samples = initialize_sample_from_signac(config)
         assert len(samples) > 0, "Empty samples, check given condition"
-        
+        # Split 
         np.random.seed(1)
         np.random.shuffle(samples)
         N_samples = len(samples)
@@ -48,117 +114,62 @@ class TwoMachineFramework:
         print(f'Training: {N_trains}')
         print(f'Testing: {N_samples - N_trains}')
 
-        self.training_set = SampleSet(samples[:N_trains])
-        self.testing_set = SampleSet(samples[N_trains:])
+        training_set = SampleSet(samples[:N_trains])
+        testing_set = SampleSet(samples[N_trains:])
+        return training_set, testing_set
 
+    def initialize_machines(self, config):
+        feature_processor, optimizer, weights_predictor, structure_predictor, reconstructor = machine_selection(config.machines)
 
         # Feature processor 
-
-        feature_processor, optimizer, weights_predictor, structure_predictor, reconstructor = machine_selection(config.machines)
-        self.feature_processor = feature_processor(config.features, self.paths.feature_processor)
-        for sample in self.training_set.samples:
-            print(f"processing sample: {sample.name}")
-            timeseries, descriptors = self.feature_processor.process_features(sample)
-            sample.set_flowfeatures(timeseries, descriptors)
+        self.feature_processor = feature_processor(
+            config.features, 
+            self.paths.feature_processor
+            )
 
         # Structure predictor
-        self.structure_predictor = structure_predictor(config.features, self.paths.structure_predictor)
+        self.structure_predictor = structure_predictor(
+            config.features, 
+            self.paths.structure_predictor
+            )
 
         # Optimization
-        self.optimizer = optimizer(self.paths.optimizer)
+        self.optimizer = optimizer(
+            self.paths.optimizer
+            )
 
         # Predict weights
-        self.weights_predictor = weights_predictor(config.features, self.paths.weights_predictor)
+        self.weights_predictor = weights_predictor(
+            config.features, 
+            self.paths.weights_predictor
+            )
 
         # Reconstructor
         self.reconstructor = reconstructor()
-
-    def _train_structure(self):
-        """ """
-        # Specify save folder
-        if self.structure_predictor.save_to.exists():
-            print("Structure model exist; LOAD")
-            self.structure_predictor.load()
-        else:
-            # Get x y pairs and train
-            print("Structure model doesn't exist; TRAIN")
-            self.structure_predictor.train(self.training_set)
-            self.structure_predictor.save()
         return 
-    
-    def _optimize(self) -> np.ndarray:
-        # Decoupled method: this part is independent of the structure prediction
-        # compose temporal matrix
-        # by training samples
 
-        N_modes = self.config.features.N_modes
-        record_file = self.optimizer.save_to/'optm.csv'
-        all_weights=[]
-        if record_file.exists():
-            print(f"Optimization exist, LOAD")
-            record = pd.read_csv(record_file)
-            for i, sample in enumerate(self.training_set.samples):
-                w = record.loc[(record['sample'] == sample.name)].values.flatten()[1:]
-                if len(w) == 0:
-                    raise SampleNotFoundInOptimizationRecord(
-                        f"sample name: {sample.name}"
-                    )
-                all_weights.append(w) 
-            all_weights = np.array(all_weights)
-
-        else:
-            for i, sample in enumerate(self.training_set.samples):
-                print(f'Optimize sample: {sample.name}')
-                X = sample.flow_features.time_series
-                y = sample.wall_true
-
-                # Optimize
-                w = self.optimizer.optimize(X, y) # shape: (N_modes, )
-                all_weights.append(w) 
-            all_weights = np.array(all_weights)
-        
-            record = pd.DataFrame(all_weights, columns=[f'w{mode}' for mode in range(all_weights.shape[1])])
-            record.insert(0, 'sample',self.training_set.name)
-            record.to_csv(self.optimizer.save_to/'optm.csv', index=False)
-        
-        return all_weights
-
-    def _train_weights(self):
-        # Specify save folder
-        if self.weights_predictor.save_to.exists():
-            print("Weights model exist; LOAD")
-            self.weights_predictor.load()
-        else:
-            # Get x y pairs and train
-            print("Weights model doesn't exist; TRAIN")
-            self.weights_predictor.train(self.training_set)
-            self.weights_predictor.save()
-        
     def train(self):
         # Train Structure
-        self._train_structure()
-        for sample in self.training_set.samples:
-            _, predicted_samples = self.structure_predictor.predict(sample.bc, self.training_set)
-            sample.set_pred_structures([s.name for s in predicted_samples])
-        assert all(hasattr(sample, 'pred_structures_names') for sample in self.training_set.samples)
+        train_structure(self.structure_predictor, self.training_set)
+        get_sample_pred_structures(self.structure_predictor, self.training_set)
 
         # optimize 
-        all_weights = self._optimize()
-        for i, sample in enumerate(self.training_set.samples):
-            weights = all_weights[i, :]
-            sample.set_optimized_weights(weights)
+        optimize(self.optimizer, self.training_set)
+        get_sample_optimization_weights(self.optimizer, self.training_set)
 
         # Train Weights
-        self._train_weights()
-        for sample in self.training_set.samples:
-            N_modes_descriptors = sample.flow_features.descriptors
-            weights = self.weights_predictor.predict(N_modes_descriptors, sample.bc.array())
-            sample.set_predicted_weights(weights)
-        
-        # Full Framework
-        for sample in self.training_set.samples:
-            y_pred = self.predict(sample.bc)
-            sample.set_wall_pred(y_pred)
+        train_weights(self.weights_predictor, self.training_set)
+        get_sample_prediction_weights(self.weights_predictor, self.training_set)
+
+        # Keep track
+        get_sample_full_prediction(self, self.training_set)
+        return
+
+    def test(self):
+        get_sample_flow_features(self.feature_processor, self.testing_set)
+        get_sample_pred_structures(self.structure_predictor, self.testing_set)
+        get_sample_prediction_weights(self.weights_predictor, self.testing_set)
+        get_sample_full_prediction(self, self.testing_set)
         return
 
     def predict(self, bc: BoundaryCondition) -> np.ndarray:

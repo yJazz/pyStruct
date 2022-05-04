@@ -12,6 +12,9 @@ def feature_processor_selector(feature_processor):
     if feature_processor.upper() == 'POD_COHERENT_STRENGTH':
         from pyStruct.featureProcessors.podFeatureProcessor import PodCoherentStrength
         return PodCoherentStrength
+    elif feature_processor.upper() == 'DMD_COHERENT_STRENGTH':
+        from pyStruct.featureProcessors.dmdFeatureProcessor import DmdCoherentStrength
+        return DmdCoherentStrength
 
 
 def optimizer_selector(optimizer):
