@@ -60,5 +60,22 @@ class TimeSeriesParser:
         self._update_coordinates(coord)
         
 
+def get_time_series(file_path: Path, N_t: int, columns: list[str]):
+    file = pd.read_csv(file_path)
+    return [tuple(file[column].values[-N_t:]) for column in columns]
 
+def get_X_matrix(columns: list[str], N_grid: int, time_series_folder: str, N_t: int): 
+    print("Read time histroy")
+    N_dim = len(columns)
+    place_holder = [[] for i in range(N_dim)]
 
+    for loc in range(N_grid):
+        # Extract the time-series columns from each loc file 
+        file_path = time_series_folder / f"loc_{loc}.csv"
+        data = get_time_series(file_path, N_t, columns) # a nested list, len(data) = number of columns
+        # 
+        for d in range(N_dim):
+            place_holder[d].append(data[d])
+        
+    x_matrix = np.concatenate([np.array(place_holder[i]) for i in range(N_dim)], axis=0)
+    return x_matrix
