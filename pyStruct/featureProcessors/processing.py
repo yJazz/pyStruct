@@ -1,4 +1,7 @@
 import abc
+import numpy as np
+from pyStruct.featureProcessors.dmdFeatureProcessor import standard_dmd
+
 
 class SpatiotemporalInterface(abc.ABC):
     @abc.abstractmethod
