@@ -87,8 +87,9 @@ class SignacDatabaseSelector(DatabaseSelector):
     def filter(self, fns: list[Callable]) -> JobContainer:
         """ Piping filtering functions """
         assert type(fns) == list, "Group the functions in a list"
+        jobs = self._jobs
         for fn in fns:
-            jobs = self._filter_jobs(self._jobs, fn)
+            jobs = self._filter_jobs(jobs, fn)
         return jobs
 
     @staticmethod

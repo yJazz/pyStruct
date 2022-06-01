@@ -65,7 +65,7 @@ class GBLookupStructure(StructurePredictorInterface):
         array_features = self._norm.fit_transform(X)
         array_targets = y
 
-        N_modes = y.shape[1]
+        N_modes = self._config.N_modes
         for mode in range(N_modes):
             print(f'train structure predictor mode {mode}')
             x = array_features

@@ -3,6 +3,9 @@ from pathlib import Path
 
 
 class FrameworkPaths:
+    """ 
+    Create the machine directories
+    """
     def __init__(self, root, machine_config, create_folder=True):
         Path(root).mkdir(parents=True, exist_ok=True)
         print(" The model is saved at: ")

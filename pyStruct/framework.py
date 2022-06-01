@@ -19,6 +19,10 @@ from pyStruct.config import check_config
 from pyStruct.optimizers.optimizer import optimize
 
 def get_sample_flow_features(feature_processor, sample_set):
+    print("===== Getting Flow Features =====")
+    if hasattr(feature_processor, 'set_ref_sample'):
+        feature_processor.set_ref_sample(sample_set.samples[0])
+
     for sample in sample_set.samples:
         time_series, descriptors = feature_processor.process_features(sample)
         sample.set_flowfeatures(time_series, descriptors)
@@ -99,7 +103,6 @@ class TwoMachineFramework:
 
         # initialize samples
         self.training_set, self.testing_set = self.initialize_samples(self.config.signac_sample)
-        # get_sample_flow_features(self.feature_processor, self.training_set)
 
     def initialize_samples(self, config):
         samples = initialize_sample_from_signac(config)
@@ -149,6 +152,9 @@ class TwoMachineFramework:
         return 
 
     def train(self):
+        # Get flow features 
+        get_sample_flow_features(self.feature_processor, self.training_set)
+
         # Train Structure
         train_structure(self.structure_predictor, self.training_set)
         get_sample_pred_structures(self.structure_predictor, self.training_set)
@@ -178,10 +184,8 @@ class TwoMachineFramework:
 
         # Predict weights
         weights = self.weights_predictor.predict(predicted_descriptors, bc.array())
-        print(weights.shape)
 
         # compose
-        pred_set = SampleSet(predicted_samples)
         # X = pred_set.flow_features.time_series
         X = np.array([s.flow_features.time_series[mode, :] for mode, s in enumerate(predicted_samples) ])
 
